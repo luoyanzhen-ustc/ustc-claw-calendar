@@ -1,0 +1,22 @@
+{
+  "timezone": "Asia/Shanghai",
+  "semesterStart": null,
+  "notify": {
+    "channels": ["current"],
+    "qq": {
+      "enabled": false
+    },
+    "wechat": {
+      "enabled": false
+    }
+  },
+  "reminderDefaults": {
+    "high": [1440, 60],
+    "medium": [30],
+    "low": [10]
+  },
+  "quietHours": {
+    "start": "23:00",
+    "end": "08:00"
+  }
+}
