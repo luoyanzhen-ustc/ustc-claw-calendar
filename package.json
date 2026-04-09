@@ -1,0 +1,23 @@
+{
+  "name": "ustc-claw-calendar",
+  "version": "2.1.0",
+  "description": "Installable USTC Claw Calendar skill with semester initialization and Beijing-time display defaults",
+  "main": "SKILL.md",
+  "scripts": {
+    "init": "node scripts/auto-init.js",
+    "install-skill": "node scripts/install.js",
+    "setup-cron": "node scripts/setup-cron.js",
+    "check": "node --check scripts/auto-init.js && node --check scripts/install.js && node --check scripts/init.js && node --check scripts/setup-cron.js && node --check scripts/daily-task.js && node --check scripts/weekly-task.js && node --check tools/path-utils.js && node --check tools/date-math.js && node --check tools/file-ops.js && node --check tools/plan-manager.js && node --check tools/cron-manager.js && node --check tools/push-reminders.js && node --check tools/ocr-wrapper.js && node --check tools/rebuild-index.js && node --check tools/archive-ops.js"
+  },
+  "keywords": [
+    "openclaw",
+    "skill",
+    "calendar",
+    "schedule",
+    "ocr",
+    "reminder"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

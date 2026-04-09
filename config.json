@@ -1,0 +1,35 @@
+{
+  "name": "ustc-claw-calendar",
+  "version": "2.1.0",
+  "description": "USTC Claw Calendar - installable OpenClaw calendar skill",
+  "timezone": "Asia/Shanghai",
+  "displayTimezone": "Asia/Shanghai",
+  "defaultSemesterStart": "2026-03-01",
+  "defaultSemesterName": "2026-spring",
+  "defaultView": "day",
+  "quietHours": ["23:00", "08:00"],
+  "ocr": {
+    "provider": "qwen-chat",
+    "enabled": true
+  },
+  "notify": {
+    "channels": ["qq", "wechat"],
+    "qq": {
+      "enabled": false
+    },
+    "wechat": {
+      "enabled": false
+    }
+  },
+  "reminderDefaults": {
+    "high": [1440, 60],
+    "medium": [30],
+    "low": [10]
+  },
+  "features": {
+    "imageRecognition": true,
+    "naturalLanguageQuery": true,
+    "smartReminders": true,
+    "multiChannelNotify": true
+  }
+}
