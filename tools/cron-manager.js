@@ -8,6 +8,13 @@ const {
   toLocal
 } = require('./file-ops.js');
 const {
+  addDaysToDateString,
+  computeWeekNumberFromStart,
+  getDateString,
+  getWeekdayFromDateString,
+  isWeekNumberWithinRanges
+} = require('./date-math.js');
+const {
   syncChannels,
   getEffectiveUserChannelConfig,
   buildWeixinAccountName,
@@ -227,79 +234,8 @@ function getSourceKind(sourceType) {
   return 'unknown';
 }
 
-function getLocalParts(date, timezone = DEFAULT_TIMEZONE) {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  });
-
-  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}`
-  };
-}
-
-function addDays(dateString, days, timezone = DEFAULT_TIMEZONE) {
-  const parsed = new Date(`${dateString}T12:00:00${timezone === 'UTC' ? 'Z' : '+08:00'}`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  parsed.setUTCDate(parsed.getUTCDate() + days);
-  return getLocalParts(parsed, timezone).date;
-}
-
-function getWeekday(dateString, timezone = DEFAULT_TIMEZONE) {
-  const parsed = new Date(`${dateString}T12:00:00${timezone === 'UTC' ? 'Z' : '+08:00'}`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  const weekday = parsed.getUTCDay();
-  return weekday === 0 ? 7 : weekday;
-}
-
-function diffDays(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return null;
-  }
-
-  return Math.floor((end.getTime() - start.getTime()) / 86400000);
-}
-
-function computeWeekNumber(semesterStart, dateString) {
-  if (!semesterStart || !dateString) {
-    return null;
-  }
-
-  const days = diffDays(semesterStart, dateString);
-  if (days === null || days < 0) {
-    return null;
-  }
-
-  return Math.floor(days / 7) + 1;
-}
-
 function isWeekAllowed(weekNumber, weekRanges = []) {
-  if (!Array.isArray(weekRanges) || weekRanges.length === 0) {
-    return true;
-  }
-
-  return weekRanges.some((range) => {
-    if (!Array.isArray(range) || range.length < 2) {
-      return false;
-    }
-
-    return weekNumber >= Number(range[0]) && weekNumber <= Number(range[1]);
-  });
+  return isWeekNumberWithinRanges(weekNumber, weekRanges);
 }
 
 function normalizeDisplay(date, startTime, endTime, timezone) {
@@ -351,7 +287,7 @@ function resolveCourseOccurrence(sourceId, sourceObject, options = {}) {
   const schedule = sourceObject.schedule || {};
   const timezone = schedule.timezone || readSettings().displayTimezone || DEFAULT_TIMEZONE;
   const now = options.now instanceof Date ? options.now : new Date();
-  const localToday = getLocalParts(now, timezone).date;
+  const localToday = getDateString(now, timezone);
   const weekday = Number(schedule.weekday);
 
   if (!weekday || !schedule.startTime) {
@@ -359,8 +295,8 @@ function resolveCourseOccurrence(sourceId, sourceObject, options = {}) {
   }
 
   for (let offset = 0; offset <= (options.lookaheadDays || DEFAULT_LOOKAHEAD_DAYS); offset += 1) {
-    const date = addDays(localToday, offset, timezone);
-    if (!date || getWeekday(date, timezone) !== weekday) {
+    const date = addDaysToDateString(localToday, offset, timezone);
+    if (!date || getWeekdayFromDateString(date, timezone) !== weekday) {
       continue;
     }
 
@@ -368,7 +304,7 @@ function resolveCourseOccurrence(sourceId, sourceObject, options = {}) {
       continue;
     }
 
-    const weekNumber = computeWeekNumber(schedule.semesterStart || date, date);
+    const weekNumber = computeWeekNumberFromStart(schedule.semesterStart || date, date);
     if (weekNumber !== null && !isWeekAllowed(weekNumber, schedule.weekRanges || [])) {
       continue;
     }
@@ -405,7 +341,7 @@ function resolveRecurringOccurrence(sourceId, sourceObject, options = {}) {
   const range = sourceObject.range || {};
   const timezone = rule.timezone || readSettings().displayTimezone || DEFAULT_TIMEZONE;
   const now = options.now instanceof Date ? options.now : new Date();
-  const localToday = getLocalParts(now, timezone).date;
+  const localToday = getDateString(now, timezone);
   const weekdays = Array.isArray(rule.byWeekday) ? rule.byWeekday.map(Number) : [];
   const searchStart = range.startDate && range.startDate > localToday ? range.startDate : localToday;
 
@@ -414,7 +350,7 @@ function resolveRecurringOccurrence(sourceId, sourceObject, options = {}) {
   }
 
   for (let offset = 0; offset <= (options.lookaheadDays || DEFAULT_LOOKAHEAD_DAYS); offset += 1) {
-    const date = addDays(searchStart, offset, timezone);
+    const date = addDaysToDateString(searchStart, offset, timezone);
     if (!date) {
       continue;
     }
@@ -423,7 +359,7 @@ function resolveRecurringOccurrence(sourceId, sourceObject, options = {}) {
       break;
     }
 
-    if (!weekdays.includes(getWeekday(date, timezone))) {
+    if (!weekdays.includes(getWeekdayFromDateString(date, timezone))) {
       continue;
     }
 

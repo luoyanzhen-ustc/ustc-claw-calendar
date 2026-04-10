@@ -11,6 +11,7 @@ const {
   toUTC,
   toLocal
 } = require('./file-ops.js');
+const { detectEventConflicts } = require('./conflict-detector.js');
 const { syncReminderCronsForSource, buildAdHocReminderStage } = require('./cron-manager.js');
 
 function cleanText(value) {
@@ -212,10 +213,12 @@ function createEvent(input = {}) {
     return validation;
   }
 
+  const warnings = detectEventConflicts(event);
   saveEvent(event);
   return {
     success: true,
-    event
+    event,
+    warnings
   };
 }
 
@@ -231,10 +234,12 @@ function updateEvent(eventId, updates = {}) {
     return validation;
   }
 
+  const warnings = detectEventConflicts(event, { excludeEventId: eventId });
   saveEvent(event);
   return {
     success: true,
-    event
+    event,
+    warnings
   };
 }
 

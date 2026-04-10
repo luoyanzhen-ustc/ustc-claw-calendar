@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { parseWeekRanges } = require('./date-math.js');
+const { normalizeAsciiDigits, normalizeWeekdayNumber, parseWeekRanges } = require('./date-math.js');
 const {
   readMetadata,
   readCourses,
@@ -66,14 +66,6 @@ function cleanText(value) {
   return cleaned || null;
 }
 
-function normalizeAsciiDigits(value) {
-  return String(value)
-    .replace(/[\uFF10-\uFF19]/g, (char) => String(char.charCodeAt(0) - 0xff10))
-    .replace(/[\u2013\u2014\u2212\uFF0D\u301C\u223C]/g, '-')
-    .replace(/[\uFF0C\u3001\uFF1B\uFF5E]/g, ',')
-    .replace(/\uFF1A/g, ':');
-}
-
 function normalizePeriods(periods) {
   if (periods === null || periods === undefined || periods === '') {
     return null;
@@ -100,8 +92,9 @@ function normalizeWeekday(weekday) {
     return null;
   }
 
-  if (Number.isInteger(weekday) && weekday >= 1 && weekday <= 7) {
-    return weekday;
+  const numericWeekday = normalizeWeekdayNumber(weekday);
+  if (numericWeekday) {
+    return numericWeekday;
   }
 
   const cleaned = cleanText(weekday);
@@ -114,10 +107,6 @@ function normalizeWeekday(weekday) {
     return ENGLISH_WEEKDAY_MAP[ascii];
   }
 
-  if (/^[1-7]$/.test(ascii)) {
-    return Number(ascii);
-  }
-
   const simplified = ascii
     .replace(/^weekday/i, '')
     .replace(/^(?:\u5468|\u661f\u671f|\u793c\u62dc)/, '')
@@ -125,10 +114,6 @@ function normalizeWeekday(weekday) {
 
   if (CHINESE_WEEKDAY_MAP[simplified]) {
     return CHINESE_WEEKDAY_MAP[simplified];
-  }
-
-  if (/^[1-7]$/.test(simplified)) {
-    return Number(simplified);
   }
 
   return null;

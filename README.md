@@ -1,66 +1,58 @@
 # USTC Claw Calendar Skill
 
-一个可直接放到 GitHub 的 OpenClaw 课表与日程 skill 包。
+这是一个给 OpenClaw 用的课表与日程管理 skill。
 
-## 适用场景
+它适合做这些事：
 
-- 上传课表图片并导入 `courses.json`
-- 管理一次性事件并写入 `events.json`
-- 管理周期事件并写入 `recurring.json`
-- 给课程、事件、周期事件附加提醒
-- 首次安装后自动初始化学期信息
-- 默认按北京时间与用户交流
-- 自动同步 OpenClaw 已连通的 QQ / 微信 bot 渠道配置
+- 导入课表图片，整理成结构化课程数据
+- 记录一次性事件
+- 记录周期事件
+- 给课程、事件、周期事件添加提醒
+- 查询今天、本周、近期安排
+- 生成 daily / weekly 所需的索引与归档数据
 
-## 使用边界
+它不负责把所有聊天内容都自动记进日程。普通闲聊、吐槽、心情、轻量记忆，仍然更适合交给 OpenClaw 原生 memory。
 
-这个 skill 的定位是“需要用户明确触发的结构化日程管理助手”。
+## 先理解这件事
 
-它负责：
+这份 skill 的定位不是“什么都自动记”的全能记忆系统，而是“用户明确触发时才工作的日程助手”。
 
-- 用户明确要求记录的事项
-- 用户明确要求提醒的事项
-- 用户明确要求查询、总结、规划的日程事项
+可以这样理解：
 
-它不负责：
+- 你说“帮我记一下……”，它会记录
+- 你说“提醒我……”，它会记录并创建提醒
+- 你说“看看我今天有什么安排”，它会查询
+- 你只是随口说“明天我要去跑步”，默认不会自动写入日程
 
-- 把所有聊天都自动写进日程
-- 因为用户提到未来时间就自动创建 event
-- 因为用户提到一件事就自动创建提醒
+这样做的好处是：
 
-推荐理解方式：
-
-- “帮我记一下，明天下午三点和老师讨论选题”
-  只记录到 `events.json`
-- “明天下午三点提醒我和老师讨论选题”
-  记录到 `events.json` 并创建提醒
-- “明天我要去跑步”
-  默认不写入 calendar，普通聊天与隐式记忆交给 OpenClaw 原生 memory
-
-这也是这个 skill 和 OpenClaw 原生 memory 的分工：
-
-- 原生 memory 负责偏好、心情、聊天背景、轻量记忆
-- 本 skill 负责用户明确交给它的课程、事件、周期安排、提醒和查询
+- 记录范围更清楚，不容易把闲聊误写成事件
+- 提醒创建更稳定，能走 skill 自己的统一逻辑
+- 长期积累下来的课程、事件、周期安排更容易检索和总结
 
 ## 一句话安装
+
+如果你想让 OpenClaw 通过对话安装这个 skill，可以直接说：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar
 ```
 
-如果希望安装后顺手完成初始化：
+如果希望安装后顺手完成初始化，可以说：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar，然后完成初始化
 ```
 
-如果要指定学期起始日期：
+如果你已经知道学期开始日期，也可以一起说清楚：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar，然后把学期开始日期设为 2026-03-01 并完成初始化
 ```
 
 ## 手动一键安装
+
+如果你想手动安装，可以运行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/luoyanzhen-ustc/ustc-claw-calendar/main/install.sh | bash
@@ -81,25 +73,108 @@ USTC_CLAW_CALENDAR_SETUP_CRON=1
 OPENCLAW_WORKSPACE=/your/openclaw/workspace
 ```
 
-## 安装后的初始化行为
+## 安装后会发生什么
 
-安装完成后，初始化脚本会：
+安装完成后，初始化脚本会自动补齐这几类数据文件：
 
-- 补齐 `settings.json`
-- 补齐 `metadata.json`
-- 创建空的 `courses.json`
-- 创建空的 `events.json`
-- 创建空的 `recurring.json`
-- 自动同步并缓存渠道配置到 `known-users.json`
-- 自动按学期起始日期计算当前周
+- `settings.json`
+- `metadata.json`
+- `courses.json`
+- `events.json`
+- `recurring.json`
+- `known-users.json`
 
-默认学期起始日期是：
+同时它会尝试做这些事：
+
+- 默认把学期开始日期设为 `2026-03-01`
+- 自动计算当前周次
+- 默认按北京时间与用户交流
+- 自动检查 OpenClaw 已连通的 QQ / 微信 bot 渠道配置
+- 把可用的渠道信息同步到 skill 自己的 `known-users.json`
+
+如果当前还没有检测到已连通的 QQ / 微信 bot，这个 skill 仍然可以正常记录课表和事件，只是提醒推送暂时不能工作。
+
+你一般不需要手动填写 openid、userId、accountId 之类的底层参数。更符合用户视角的做法是：先让 OpenClaw 和 QQ / 微信 bot 连通，并且至少实际聊过一次，再让 skill 自动同步配置。
+
+## 最常见的几种用法
+
+### 1. 上传课表图片
+
+推荐流程是：
+
+1. Agent 优先直接读图解析课表
+2. 如果当前模型不适合读图，再回退到 OCR
+3. 根据 USTC 规则修正星期、节次、周次、上课时间
+4. 先保存为待确认草稿
+5. 让用户确认识别结果
+6. 确认后再写入 `courses.json`
+
+也就是说，课表不会在用户还没确认时直接正式写入。
+
+### 2. 只记录，不提醒
 
 ```text
-2026-03-01
+帮我记一下，明天下午三点和老师讨论选题
 ```
 
-如果还没有检测到已连通的 QQ / 微信 bot，skill 会提示先完成 bot 连通；正常情况下不需要用户手动填写任何渠道 ID。
+结果：
+
+- 写入 `events.json`
+- 默认不创建提醒
+
+### 3. 记录并提醒
+
+```text
+提醒我明天下午三点和老师讨论选题
+```
+
+结果：
+
+- 写入 `events.json`
+- 创建提醒
+- 提醒会优先走这个 skill 自己的 reminder 逻辑，而不是绕过 skill 直接调系统级临时提醒
+
+### 4. 添加周期事件
+
+```text
+帮我记一下，以后每周二和周四晚上健身
+```
+
+结果：
+
+- 写入 `recurring.json`
+
+如果你想要提醒，最好直接说清楚：
+
+```text
+以后每周二和周四晚上八点提醒我去健身
+```
+
+## 这份 skill 会怎么处理你的内容
+
+为了让记录结果更清楚，这份 skill 目前会这样处理：
+
+- 课程写入 `courses.json`
+- 一次性事件写入 `events.json`
+- 周期事件写入 `recurring.json`
+- 提醒可以附加在课程、一次性事件、周期事件上
+- 用户看到的时间默认按北京时间表达
+- 如果时间说得不够具体，通常会先向你确认
+- 如果新事件和已有课程、事件、周期事件时间重叠，会提示你存在冲突
+
+## 这份 skill 不适合做什么
+
+下面这些事情，不建议交给这份 skill 自动做：
+
+- 把每一句聊天都写进日程
+- 因为用户提到未来时间，就自动创建事件
+- 因为用户提到一件事，就默认创建提醒
+- 把隐性偏好、心情、闲聊细节都塞进 calendar 存储
+
+更合适的分工是：
+
+- OpenClaw 原生 memory：处理聊天背景、偏好、情绪、轻量记忆
+- USTC Claw Calendar：处理用户明确交给它的课程、事件、周期安排、提醒、查询、总结
 
 ## 常用脚本
 
@@ -128,32 +203,7 @@ npm run confirm-course-import
 npm run discard-course-import
 ```
 
-## 课表导入流程
-
-推荐链路：
-
-1. Agent 优先使用自身读图能力解析课表图片。
-2. 如果当前模型不适合直接读图，再回退到 OCR。
-3. 根据 USTC 规则修正星期、节次、周次和上课时间。
-4. 先保存为待确认草稿，不直接写入正式课程存储。
-5. 向用户展示识别摘要并确认。
-6. 用户确认后再写入 `courses.json`。
-
-可配合以下命令：
-
-```bash
-node scripts/review-course-import.js
-node scripts/confirm-course-import.js
-node scripts/discard-course-import.js
-```
-
-若草稿仍有 `needsReview` 项，但用户已经逐项确认无误，可使用：
-
-```bash
-node scripts/confirm-course-import.js --force
-```
-
-## 数据位置
+## 数据放在哪里
 
 默认数据目录：
 
@@ -161,39 +211,22 @@ node scripts/confirm-course-import.js --force
 ~/.openclaw/workspace/ustc-claw-calendar/data
 ```
 
-若设置了 `OPENCLAW_WORKSPACE`：
+如果设置了 `OPENCLAW_WORKSPACE`：
 
 ```text
 $OPENCLAW_WORKSPACE/ustc-claw-calendar/data
 ```
 
-## 当前数据模型
+主要数据文件：
 
-- `courses.json`
-  课程表主存储
-- `events.json`
-  一次性事件主存储
-- `recurring.json`
-  周期事件规则主存储
+- `courses.json`：课程主存储
+- `events.json`：一次性事件主存储
+- `recurring.json`：周期事件规则主存储
 - `index/today.json`
 - `index/this-week.json`
 - `index/upcoming.json`
-  这些都是派生索引
 
-提醒是通用能力，可附加到课程、事件、周期事件。
-
-## 记录与提醒规则
-
-- “帮我记一下 / 记一下 / 加入日程”
-  默认只记录，不自动提醒
-- “提醒我 / 到时候提醒我 / 通知我”
-  记录并提醒
-- “以后每周……”
-  若用户明确要求记录或提醒，则创建周期事件
-- 含糊不清时
-  应先追问一句，而不是自作主张写入或提醒
-
-提醒创建应优先走本 skill 的统一 reminder 层，而不是绕过 skill 直接调用系统级临时提醒。
+后面这三个是派生索引，不是主存储。
 
 ## 仓库结构
 
@@ -217,6 +250,7 @@ ustc-claw-calendar/
 └── tools/
     ├── archive-ops.js
     ├── channel-sync.js
+    ├── conflict-detector.js
     ├── course-import.js
     ├── course-manager.js
     ├── cron-manager.js
@@ -228,16 +262,3 @@ ustc-claw-calendar/
     ├── recurring-manager.js
     └── rebuild-index.js
 ```
-
-## 当前约束
-
-- 不再依赖 `register-tools`
-- 不会把课表课程混写进普通事件
-- `setup-cron.js` 只保留 daily / weekly 两类任务
-- 用户可见时间默认按北京时间表达
-
-## 发布前建议
-
-- 将仓库内容直接推到 GitHub 根目录
-- 确保 `SKILL.md` 位于仓库根目录
-- 不要提交真实 `known-users.json`、运行时数据或私有渠道标识

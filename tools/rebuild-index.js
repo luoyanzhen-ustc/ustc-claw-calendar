@@ -14,7 +14,17 @@ const {
   toUTC,
   toLocal
 } = require('./file-ops.js');
-const { getCurrentWeek } = require('./date-math.js');
+const {
+  addDaysToDateString,
+  computeWeekNumberFromStart,
+  diffDateStrings,
+  getCurrentWeek,
+  getDateString,
+  getWeekEndDate,
+  getWeekStartDate,
+  getWeekdayFromDateString,
+  isWeekNumberWithinRanges
+} = require('./date-math.js');
 const { expandRecurringInRange } = require('./recurring-manager.js');
 
 function groupBy(items, key) {
@@ -28,97 +38,6 @@ function groupBy(items, key) {
 function getDisplayTimezone() {
   const settings = readSettings();
   return settings.displayTimezone || settings.timezone || DEFAULT_TIMEZONE;
-}
-
-function getLocalDateParts(date = new Date(), timezone = getDisplayTimezone()) {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  });
-
-  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}`
-  };
-}
-
-function getDateString(date = new Date(), timezone = getDisplayTimezone()) {
-  return getLocalDateParts(date, timezone).date;
-}
-
-function addDays(dateString, days, timezone = getDisplayTimezone()) {
-  const base = new Date(`${dateString}T12:00:00${timezone === 'UTC' ? 'Z' : '+08:00'}`);
-  if (Number.isNaN(base.getTime())) {
-    return null;
-  }
-
-  base.setUTCDate(base.getUTCDate() + days);
-  return getDateString(base, timezone);
-}
-
-function diffDays(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return null;
-  }
-
-  return Math.floor((end.getTime() - start.getTime()) / 86400000);
-}
-
-function getWeekday(dateString, timezone = getDisplayTimezone()) {
-  const parsed = new Date(`${dateString}T12:00:00${timezone === 'UTC' ? 'Z' : '+08:00'}`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  const weekday = parsed.getUTCDay();
-  return weekday === 0 ? 7 : weekday;
-}
-
-function getWeekStart(dateString, timezone = getDisplayTimezone()) {
-  const weekday = getWeekday(dateString, timezone);
-  if (!weekday) {
-    return null;
-  }
-
-  return addDays(dateString, -(weekday - 1), timezone);
-}
-
-function getWeekEnd(dateString, timezone = getDisplayTimezone()) {
-  const weekStart = getWeekStart(dateString, timezone);
-  return weekStart ? addDays(weekStart, 6, timezone) : null;
-}
-
-function computeWeekNumber(semesterStart, dateString) {
-  if (!semesterStart || !dateString) {
-    return null;
-  }
-
-  const days = diffDays(semesterStart, dateString);
-  if (days === null || days < 0) {
-    return null;
-  }
-
-  return Math.floor(days / 7) + 1;
-}
-
-function isWithinWeekRanges(weekNumber, weekRanges = []) {
-  if (!Array.isArray(weekRanges) || weekRanges.length === 0) {
-    return true;
-  }
-
-  if (!weekNumber) {
-    return false;
-  }
-
-  return weekRanges.some((range) => Array.isArray(range) && weekNumber >= Number(range[0]) && weekNumber <= Number(range[1]));
 }
 
 function sortByStartTime(items) {
@@ -202,7 +121,7 @@ function buildCourseInstancesForDate(dateString, options = {}) {
   const timezone = options.timezone || getDisplayTimezone();
   const metadata = options.metadata || readMetadata();
   const courses = readCourses().courses || [];
-  const weekday = getWeekday(dateString, timezone);
+  const weekday = getWeekdayFromDateString(dateString, timezone);
 
   return sortByStartTime(
     courses
@@ -214,12 +133,12 @@ function buildCourseInstancesForDate(dateString, options = {}) {
           return false;
         }
 
-        const weekNumber = computeWeekNumber(semesterStart, dateString);
-        return isWithinWeekRanges(weekNumber, course.schedule?.weekRanges || []);
+        const weekNumber = computeWeekNumberFromStart(semesterStart, dateString);
+        return isWeekNumberWithinRanges(weekNumber, course.schedule?.weekRanges || []);
       })
       .map((course) => {
         const semesterStart = course.schedule?.semesterStart || metadata.startDate || null;
-        const weekNumber = computeWeekNumber(semesterStart, dateString);
+        const weekNumber = computeWeekNumberFromStart(semesterStart, dateString);
         return buildCourseInstance(course, dateString, weekNumber, timezone);
       })
   );
@@ -294,10 +213,13 @@ function buildItemsForRange(rangeStart, rangeEnd, options = {}) {
   const timezone = options.timezone || getDisplayTimezone();
   const metadata = options.metadata || readMetadata();
   const coursesByDate = new Map();
-  const spanDays = diffDays(rangeStart, rangeEnd);
+  const spanDays = diffDateStrings(rangeStart, rangeEnd);
+  if (spanDays === null || spanDays < 0) {
+    return [];
+  }
 
   for (let offset = 0; offset <= spanDays; offset += 1) {
-    const date = addDays(rangeStart, offset, timezone);
+    const date = addDaysToDateString(rangeStart, offset, timezone);
     coursesByDate.set(date, buildCourseInstancesForDate(date, { timezone, metadata }));
   }
 
@@ -306,7 +228,7 @@ function buildItemsForRange(rangeStart, rangeEnd, options = {}) {
   const eventsByDate = new Map();
 
   for (let offset = 0; offset <= spanDays; offset += 1) {
-    const date = addDays(rangeStart, offset, timezone);
+    const date = addDaysToDateString(rangeStart, offset, timezone);
     eventsByDate.set(date, []);
   }
 
@@ -320,18 +242,18 @@ function buildItemsForRange(rangeStart, rangeEnd, options = {}) {
 
   const days = [];
   for (let offset = 0; offset <= spanDays; offset += 1) {
-    const date = addDays(rangeStart, offset, timezone);
+    const date = addDaysToDateString(rangeStart, offset, timezone);
     const items = sortByStartTime([
       ...(coursesByDate.get(date) || []),
       ...(eventsByDate.get(date) || [])
     ]);
 
     const semesterStart = metadata.startDate || null;
-    const weekNumber = computeWeekNumber(semesterStart, date);
+    const weekNumber = computeWeekNumberFromStart(semesterStart, date);
 
     days.push({
       date,
-      weekday: getWeekday(date, timezone),
+      weekday: getWeekdayFromDateString(date, timezone),
       weekNumber,
       events: items,
       summary: buildSummary(items)
@@ -364,8 +286,8 @@ function buildThisWeekIndex(options = {}) {
   const timezone = options.timezone || getDisplayTimezone();
   const metadata = options.metadata || readMetadata();
   const today = options.today || getDateString(new Date(), timezone);
-  const weekStart = getWeekStart(today, timezone);
-  const weekEnd = getWeekEnd(today, timezone);
+  const weekStart = getWeekStartDate(today, timezone);
+  const weekEnd = getWeekEndDate(today, timezone);
   const days = buildItemsForRange(weekStart, weekEnd, { timezone, metadata });
   const allItems = days.flatMap((day) => day.events);
 
@@ -385,7 +307,7 @@ function buildUpcomingIndex(days = 7, options = {}) {
   const timezone = options.timezone || getDisplayTimezone();
   const metadata = options.metadata || readMetadata();
   const today = options.today || getDateString(new Date(), timezone);
-  const rangeEnd = addDays(today, Math.max(0, days - 1), timezone);
+  const rangeEnd = addDaysToDateString(today, Math.max(0, days - 1), timezone);
   const dayItems = buildItemsForRange(today, rangeEnd, { timezone, metadata });
   const allItems = dayItems.flatMap((day) => day.events);
 

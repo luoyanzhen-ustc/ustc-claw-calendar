@@ -12,6 +12,12 @@ const {
   toUTC,
   toLocal
 } = require('./file-ops.js');
+const {
+  addDaysToDateString,
+  diffDateStrings,
+  getWeekdayFromDateString,
+  normalizeWeekdayList
+} = require('./date-math.js');
 const { syncReminderCronsForSource, buildAdHocReminderStage } = require('./cron-manager.js');
 
 function cleanText(value) {
@@ -105,63 +111,8 @@ function normalizeTimeString(value, fallback = null) {
   return parseTimeToMinutes(cleaned) === null ? fallback : cleaned.padStart(5, '0');
 }
 
-function getTimezoneOffsetSuffix(timezone = DEFAULT_TIMEZONE) {
-  if (timezone === 'UTC') {
-    return 'Z';
-  }
-
-  return '+08:00';
-}
-
-function getDateWeekday(dateString, timezone = DEFAULT_TIMEZONE) {
-  const suffix = getTimezoneOffsetSuffix(timezone);
-  const isoLike = `${dateString}T12:00:00${suffix}`;
-  const parsed = new Date(isoLike);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  const weekday = suffix === 'Z' ? parsed.getUTCDay() : parsed.getUTCDay();
-  return weekday === 0 ? 7 : weekday;
-}
-
-function addDays(dateString, days, timezone = DEFAULT_TIMEZONE) {
-  const suffix = getTimezoneOffsetSuffix(timezone);
-  const parsed = new Date(`${dateString}T12:00:00${suffix}`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  parsed.setUTCDate(parsed.getUTCDate() + days);
-
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone === 'UTC' ? 'UTC' : timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(parsed);
-
-  const mapped = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${mapped.year}-${mapped.month}-${mapped.day}`;
-}
-
-function diffDays(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return null;
-  }
-
-  return Math.round((end.getTime() - start.getTime()) / 86400000);
-}
-
 function normalizeWeekdays(input) {
-  const values = Array.isArray(input) ? input : [input];
-  const normalized = values
-    .map((value) => Number(value))
-    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 7);
-
-  return [...new Set(normalized)].sort((left, right) => left - right);
+  return normalizeWeekdayList(input);
 }
 
 function normalizeExceptions(exceptions = []) {
@@ -492,19 +443,19 @@ function expandOneRecurringInRange(recurringItem, rangeStart, rangeEnd) {
     return [];
   }
 
-  const spanDays = diffDays(effectiveStart, effectiveEnd);
+  const spanDays = diffDateStrings(effectiveStart, effectiveEnd);
   if (spanDays === null || spanDays < 0) {
     return [];
   }
 
   const instances = [];
   for (let offset = 0; offset <= spanDays; offset += 1) {
-    const date = addDays(effectiveStart, offset, timezone);
+    const date = addDaysToDateString(effectiveStart, offset, timezone);
     if (!date) {
       continue;
     }
 
-    const weekday = getDateWeekday(date, timezone);
+    const weekday = getWeekdayFromDateString(date, timezone);
     if (!recurringItem.rule.byWeekday.includes(weekday)) {
       continue;
     }
@@ -557,7 +508,7 @@ function expandRecurringForWeek(weekStartDate) {
     return { success: false, error: 'A valid week start date is required.' };
   }
 
-  const weekEndDate = addDays(normalizedStart, 6);
+  const weekEndDate = addDaysToDateString(normalizedStart, 6);
   return expandRecurringInRange(normalizedStart, weekEndDate);
 }
 
