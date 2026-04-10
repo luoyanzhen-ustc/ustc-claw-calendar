@@ -37,15 +37,23 @@ function getEventLocalDate(event, timezone = DEFAULT_TIMEZONE) {
 
 function buildWeeklyStats(days) {
   const items = days.flatMap((day) => day.events || []);
+  const byStateLabel = items.reduce((accumulator, item) => {
+    const label = item.state?.label || 'unknown';
+    accumulator[label] = (accumulator[label] || 0) + 1;
+    return accumulator;
+  }, {});
+
   return {
     totalItems: items.length,
     totalDays: days.length,
     byType: groupBy(items, 'type'),
     bySource: groupBy(items, 'sourceType'),
     byPriority: groupBy(items, 'priority'),
+    byStateLabel,
     withReminders: items.filter((item) => item.reminders?.enabled).length,
     completed: items.filter((item) => Boolean(item.completedAt)).length,
-    cancelled: items.filter((item) => Boolean(item.cancelledAt)).length
+    cancelled: items.filter((item) => Boolean(item.cancelledAt)).length,
+    pastUncompleted: items.filter((item) => item.state?.label === '已过时间，未标记完成').length
   };
 }
 
@@ -66,7 +74,12 @@ function extractHighlights(days) {
     .slice(0, 5)
     .map((item) => `Reminder attached: ${item.title}`);
 
-  return [...completed, ...highPriority, ...withReminders].slice(0, 8);
+  const pastUncompleted = items
+    .filter((item) => item.state?.label === '已过时间，未标记完成')
+    .slice(0, 5)
+    .map((item) => `Past and still open: ${item.title}`);
+
+  return [...completed, ...highPriority, ...withReminders, ...pastUncompleted].slice(0, 8);
 }
 
 function buildWeeklySourceSnapshot(weekRange, metadata) {

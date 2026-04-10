@@ -164,6 +164,7 @@ function buildSettingsDefaults(overrides = {}) {
     notify: {
       enabled: true,
       channels: ['qq', 'wechat'],
+      reminderPromptTemplate: null,
       qq: { enabled: false },
       wechat: { enabled: false }
     },

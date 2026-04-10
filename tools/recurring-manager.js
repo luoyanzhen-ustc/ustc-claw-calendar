@@ -18,6 +18,7 @@ const {
   getWeekdayFromDateString,
   normalizeWeekdayList
 } = require('./date-math.js');
+const { normalizeReminders: normalizeSharedReminders } = require('./reminder-utils.js');
 const { syncReminderCronsForSource, buildAdHocReminderStage } = require('./cron-manager.js');
 
 function cleanText(value) {
@@ -53,28 +54,8 @@ function normalizePriority(priority) {
   return ['high', 'medium', 'low'].includes(normalized) ? normalized : null;
 }
 
-function normalizeReminderStages(stages = []) {
-  if (!Array.isArray(stages)) {
-    return [];
-  }
-
-  return stages.map((stage) => ({
-    id: stage.id || generateStageId(),
-    offset: Math.max(0, Number(stage.offset) || 0),
-    offsetUnit: ['minutes', 'hours', 'days'].includes(stage.offsetUnit) ? stage.offsetUnit : 'minutes',
-    cronJobIds: Array.isArray(stage.cronJobIds) ? stage.cronJobIds : [],
-    triggerTime: stage.triggerTime || null,
-    createdAt: stage.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }));
-}
-
 function normalizeReminders(reminders = {}) {
-  const stages = normalizeReminderStages(reminders.stages || []);
-  return {
-    enabled: reminders.enabled === true && stages.length > 0,
-    stages
-  };
+  return normalizeSharedReminders(reminders, generateStageId);
 }
 
 function isValidDateString(value) {
@@ -420,7 +401,7 @@ function buildRecurringInstance(recurringItem, date) {
     startAt: timing.startAt,
     endAt: timing.endAt,
     display: timing.display,
-    reminders: recurringItem.reminders || { enabled: false, stages: [] },
+    reminders: normalizeReminders(recurringItem.reminders || { enabled: false, stages: [] }),
     priority: recurringItem.priority || null,
     metadata: {
       sourceRecurringId: recurringItem.id,

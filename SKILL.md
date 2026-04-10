@@ -17,9 +17,12 @@ description: "OpenClaw 课表与日程管理 skill。只处理用户明确交给
 - 如果读取 JavaScript `Date.getDay()` 结果，要记住它是 `0=周日, 1=周一, ... 6=周六`，不能把 `0` 当成周一。
 - 用户只说“上午 / 下午 / 晚上 / 晚点 / 回头 / 明天找老师 / 周二晚上”这类没有明确钟点的话时，必须先追问准确时间，再创建或修改事件、周期事件、提醒。
 - 不要擅自把“下午”补成 `14:00` 或 `15:00`，也不要把“晚上”补成某个默认时间。
+- 如果用户没有明确说持续时长或结束时间，`endAt` / `display.endTime` 留空，不要自行补一小时、半小时之类的默认值。
 - 修改周期事件时，先读取现有规则，再做最小变更。
 - 如果用户说“把周二改到周五”，只允许改动被点名的那个 weekday 槽位；未明确提到的 weekday、开始时间、结束时间、提醒阶段都保持不变。
 - 如果 `createEvent` / `updateEvent` 返回 `warnings`，必须向用户明确说明存在时间冲突；除非用户要求取消，否则可以保留记录，但不能假装没有冲突。
+- 如果本轮用户没有明确提醒意图，就不要调用任何 reminder / cron 相关函数；上一轮刚创建过提醒也不例外。
+- 除非用户在问机制，否则不要主动解释 skill、memory、不会写入记录、系统能力等内部规则；正常聊天优先自然回复。
 
 ## 负责范围
 
@@ -97,6 +100,7 @@ description: "OpenClaw 课表与日程管理 skill。只处理用户明确交给
 - 回复用户“已记录”
 
 不要因为句子里有未来时间，就自动提醒。
+不要因为上一轮刚设置过提醒，就在这一轮顺手继续建提醒。
 
 ### 默认记录并提醒
 
@@ -158,7 +162,7 @@ description: "OpenClaw 课表与日程管理 skill。只处理用户明确交给
 1. 先创建或更新 source object
 2. 再把 reminder 附加到 source object
 3. 再通过本 skill 的 reminder 层创建 cron
-4. 再确认 `cronJobIds` 已写回
+4. 再确认返回结果里的 `cronJobIds` / `effectiveCronJobIds` 非空，必要时检查对应 stage 的 `pushedChannels.*.cronJobId`
 5. 最后再回复用户
 
 source object 只能是：
@@ -167,7 +171,7 @@ source object 只能是：
 - event
 - recurring
 
-不要绕过本 skill 直接使用 OpenClaw 系统级提醒能力。不要直接使用 `qqbot_remind` 创建业务提醒。不要只调用系统级 cron 而不写入 `events.json` / `courses.json` / `recurring.json`。
+不要绕过本 skill 直接使用 OpenClaw 系统级提醒能力。不要直接使用 `qqbot_remind` 创建业务提醒。不要只调用系统级 cron 而不写入 `events.json` / `courses.json` / `recurring.json`。如果本 skill 的提醒函数已经返回了有效 `cronJobIds`，不要再额外补建第二套 cron。
 
 如果 reminder 创建失败：
 
@@ -196,6 +200,8 @@ source object 只能是：
 - `summary` 写一句简短说明，用来补充事件目的、对象或上下文；没有必要就留空，不要编造。
 - `notes` 只写用户明确补充的细节，例如地点补充、准备事项、变更说明、取消原因、后续备注；没有就留空。
 - 如果用户只说了一句很短的话，通常只写 `title` 就够了，不必强行补 `summary` 或 `notes`。
+- 如果用户明确说“已经完成 / 做完了 / 去过了 / 结束了”，不要只写进 `notes`，要同步写 `completedAt` 或调用 `completeEvent`。
+- 如果用户明确说“不去了 / 取消了 / 改期了”，不要只写进 `notes`，要同步写 `cancelledAt` / `cancelNote` 或调用 `cancelEvent`。
 
 课程提醒：
 
@@ -220,8 +226,8 @@ source object 只能是：
 ## 时间规则
 
 - 与用户交流时默认使用北京时间 `Asia/Shanghai`
-- 底层可以用 UTC 存储，但展示和解释必须转回北京时间
 - “今天 / 明天 / 本周”按北京时间理解
+- 如果当前处于北京时间凌晨 `00:00-05:00`，且用户只说“今天 / 明天”这类相对日期，优先追问一次再记录或提醒。
 - 涉及相对时间时，尽量在回复中给出绝对日期和时间
 
 ## 课表导入规则

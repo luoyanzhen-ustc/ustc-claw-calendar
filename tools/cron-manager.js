@@ -15,6 +15,11 @@ const {
   isWeekNumberWithinRanges
 } = require('./date-math.js');
 const {
+  deriveStageCronJobIds,
+  normalizeReminderStage,
+  normalizeReminders: normalizeSharedReminders
+} = require('./reminder-utils.js');
+const {
   syncChannels,
   getEffectiveUserChannelConfig,
   buildWeixinAccountName,
@@ -85,8 +90,44 @@ function parseCronList(output) {
   }
 }
 
+function extractCronJobId(payload = {}) {
+  return (
+    payload.id ||
+    payload.jobId ||
+    payload.cronJobId ||
+    payload.job?.id ||
+    payload.data?.id ||
+    payload.result?.id ||
+    payload.cron?.id ||
+    null
+  );
+}
+
+function findCronJobByName(name) {
+  const result = exec('openclaw cron list --json');
+  if (!result.success) {
+    return null;
+  }
+
+  return parseCronList(result.output).find((job) => job.name === name) || null;
+}
+
 function escapeSingleQuotes(value) {
   return String(value).replace(/'/g, `'\\''`);
+}
+
+function withEffectiveCronJobIds(payload = {}, reminders = null) {
+  const effectiveCronJobIds = Array.isArray(payload.effectiveCronJobIds)
+    ? payload.effectiveCronJobIds
+    : Array.isArray(reminders?.stages)
+      ? reminders.stages.flatMap((stage) => deriveStageCronJobIds(stage))
+      : [];
+
+  return {
+    ...payload,
+    effectiveCronJobIds,
+    cronJobIds: effectiveCronJobIds
+  };
 }
 
 function createCronJob(name, schedule, payloadMessage, channelConfig, options = {}) {
@@ -123,8 +164,20 @@ function createCronJob(name, schedule, payloadMessage, channelConfig, options = 
 
   try {
     const payload = JSON.parse(result.output);
-    const cronJobId = payload.id || payload.jobId || payload.job?.id || null;
+    const cronJobId = extractCronJobId(payload);
     if (!cronJobId) {
+      const fallbackJob = findCronJobByName(name);
+      if (fallbackJob?.id) {
+        return {
+          success: true,
+          cronJobId: fallbackJob.id,
+          channel: channelConfig.channel,
+          to: channelConfig.to,
+          rawData: payload,
+          resolvedByLookup: true
+        };
+      }
+
       return {
         success: false,
         channel: channelConfig.channel,
@@ -404,48 +457,55 @@ function resolveReminderOccurrence({ sourceType, sourceId, sourceObject, options
 }
 
 function createReminderPrompt(occurrence, offset, offsetUnit, channel) {
+  const settings = readSettings();
   const unitText = offsetUnit === 'days' ? '天' : offsetUnit === 'hours' ? '小时' : '分钟';
   const channelText = channel === 'qq' ? 'QQ' : '微信';
   const dateText = occurrence.display.date || '日期未知';
   const timeText = occurrence.display.startTime || '时间未知';
   const locationText = occurrence.location || null;
   const summaryText = occurrence.summary || null;
+  const leadTimeText = `${offset} ${unitText}`;
+  const customTemplate = settings.notify?.reminderPromptTemplate;
+
+  if (typeof customTemplate === 'string' && customTemplate.trim()) {
+    return customTemplate
+      .replace(/\{\{title\}\}/g, occurrence.title || '')
+      .replace(/\{\{date\}\}/g, dateText)
+      .replace(/\{\{time\}\}/g, timeText)
+      .replace(/\{\{summary\}\}/g, summaryText || '')
+      .replace(/\{\{location\}\}/g, locationText || '')
+      .replace(/\{\{lead_time\}\}/g, leadTimeText)
+      .replace(/\{\{channel\}\}/g, channelText)
+      .trim();
+  }
 
   return [
-    '你是一个日程提醒助手。',
-    '你的任务是生成一条最终发给用户的中文提醒消息。',
+    '请根据下面的信息，直接写一条发给用户的中文提醒。',
+    '只输出最终提醒文案本身，不要输出分析或解释。',
     '',
-    '已知信息：',
-    `- 标题：${occurrence.title}`,
-    `- 时间：${dateText} ${timeText}（北京时间）`,
-    summaryText ? `- 简述：${summaryText}` : null,
+    '可用信息：',
+    `- 事件标题：${occurrence.title}`,
+    `- 事件时间：${dateText} ${timeText}（北京时间）`,
+    summaryText ? `- 事件简述：${summaryText}` : null,
     locationText ? `- 地点：${locationText}` : null,
-    `- 提前量：${offset} ${unitText}`,
-    `- 渠道：${channelText}`,
+    `- 提醒提前量：${leadTimeText}`,
+    `- 推送渠道：${channelText}`,
     '',
-    '输出要求：',
-    '1. 必须只输出中文提醒文案本身，不要输出分析、解释、标题或额外前缀。',
-    '2. 必须使用北京时间表达，不要提 UTC。',
-    '3. 文案要简短、自然、明确，像正常提醒通知。',
-    '4. 不要编造未提供的信息。',
-    '5. 不要提及内部 id、系统字段、sourceType、cron 等技术信息。',
-    '6. 如果有地点或简述，可以自然带上；如果没有，就不要补充。',
+    '要求：',
+    '- 语气自然，像平时聊天中的提醒，不要太像公告。',
+    '- 必须使用北京时间表达，不要提 UTC。',
+    '- 不要编造没有提供的信息。',
+    '- 不要提及内部 id、系统字段、cron、sourceType 等技术信息。',
+    '- 如果没有地点或简述，就不要硬加。',
     '',
-    '推荐风格示例：',
-    '提醒你：2026-04-14 15:00 和老师讨论选题。',
-    '提醒你：2026-04-14 20:00 去健身，地点在西区体育馆。'
-  ]
-    .filter(Boolean)
-    .join('\n');
+    '风格参考：',
+    '提醒你，2026-04-14 15:00 和老师讨论选题。',
+    '别忘了，2026-04-14 20:00 去健身。'
+  ].filter(Boolean).join('\n');
 }
 
 function cloneReminderStage(stage) {
-  return {
-    ...stage,
-    cronJobIds: Array.isArray(stage?.cronJobIds) ? [...stage.cronJobIds] : [],
-    triggerTime: stage?.triggerTime || null,
-    pushedChannels: stage?.pushedChannels ? { ...stage.pushedChannels } : {}
-  };
+  return normalizeReminderStage(stage || {}, () => stage?.id || `stage-${Math.random().toString(36).slice(2, 10)}`);
 }
 
 function clearReminderStageRuntime(stage) {
@@ -458,10 +518,7 @@ function clearReminderStageRuntime(stage) {
 }
 
 function cloneReminders(reminders = {}) {
-  return {
-    enabled: reminders.enabled === true && Array.isArray(reminders.stages) && reminders.stages.length > 0,
-    stages: Array.isArray(reminders.stages) ? reminders.stages.map(cloneReminderStage) : []
-  };
+  return normalizeSharedReminders(reminders, () => `stage-${Math.random().toString(36).slice(2, 10)}`);
 }
 
 function deleteReminderCronIds(cronJobIds = [], dependencies = {}) {
@@ -593,7 +650,7 @@ function syncReminderCronsForSource({
   const nextReminders = cloneReminders(deleted.reminders);
 
   if (!nextReminders.enabled || nextReminders.stages.length === 0) {
-    return {
+    return withEffectiveCronJobIds({
       success: deleted.failures.length === 0,
       partialSuccess: deleted.partialSuccess,
       reminders: nextReminders,
@@ -603,12 +660,12 @@ function syncReminderCronsForSource({
       deletedCronIds: deleted.deletedCronIds,
       failures: deleted.failures,
       error: deleted.failures.length > 0 ? 'Some existing reminder cron jobs failed to delete.' : null
-    };
+    }, nextReminders);
   }
 
   const resolved = resolveReminderOccurrence({ sourceType, sourceId, sourceObject, options });
   if (!resolved.success) {
-    return {
+    return withEffectiveCronJobIds({
       success: false,
       reminders: nextReminders,
       occurrence: null,
@@ -617,7 +674,7 @@ function syncReminderCronsForSource({
       deletedCronIds: deleted.deletedCronIds,
       failures: deleted.failures,
       error: resolved.error
-    };
+    }, nextReminders);
   }
 
   const occurrence = resolved.occurrence;
@@ -665,7 +722,7 @@ function syncReminderCronsForSource({
   });
 
   if (nextReminders.stages.length > 0 && createdCronIds.length === 0) {
-    return {
+    return withEffectiveCronJobIds({
       success: false,
       reminders: nextReminders,
       occurrence,
@@ -674,11 +731,11 @@ function syncReminderCronsForSource({
       deletedCronIds: deleted.deletedCronIds,
       failures,
       error: 'No reminder cron jobs were created.'
-    };
+    }, nextReminders);
   }
 
   if (failures.length > 0) {
-    return {
+    return withEffectiveCronJobIds({
       success: false,
       partialSuccess: createdCronIds.length > 0,
       reminders: nextReminders,
@@ -688,10 +745,10 @@ function syncReminderCronsForSource({
       deletedCronIds: deleted.deletedCronIds,
       failures,
       error: 'Some reminder cron jobs failed to synchronize.'
-    };
+    }, nextReminders);
   }
 
-  return {
+  return withEffectiveCronJobIds({
     success: true,
     reminders: nextReminders,
     occurrence,
@@ -699,26 +756,20 @@ function syncReminderCronsForSource({
     deletedCrons: deleted.deletedCount,
     deletedCronIds: deleted.deletedCronIds,
     failures: []
-  };
+  }, nextReminders);
 }
 
 function buildAdHocReminderStage(reminders = {}, stage = {}) {
-  return {
-    enabled: true,
-    stages: [
-      ...(Array.isArray(reminders.stages) ? reminders.stages.map(cloneReminderStage) : []),
-      {
-        ...stage,
-        id: stage.id || `stage-${Math.random().toString(36).slice(2, 10)}`,
-        offset: Math.max(0, Number(stage.offset) || 0),
-        offsetUnit: ['minutes', 'hours', 'days'].includes(stage.offsetUnit) ? stage.offsetUnit : 'minutes',
-        cronJobIds: Array.isArray(stage.cronJobIds) ? [...stage.cronJobIds] : [],
-        triggerTime: stage.triggerTime || null,
-        createdAt: stage.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    ]
-  };
+  return normalizeSharedReminders(
+    {
+      enabled: true,
+      stages: [
+        ...(Array.isArray(reminders.stages) ? reminders.stages.map(cloneReminderStage) : []),
+        stage
+      ]
+    },
+    () => `stage-${Math.random().toString(36).slice(2, 10)}`
+  );
 }
 
 function listReminderCronsForSource(sourceType, sourceId) {

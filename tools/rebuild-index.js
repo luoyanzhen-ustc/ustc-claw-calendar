@@ -25,6 +25,8 @@ const {
   getWeekdayFromDateString,
   isWeekNumberWithinRanges
 } = require('./date-math.js');
+const { deriveItemState } = require('./item-state.js');
+const { normalizeReminders: normalizeSharedReminders } = require('./reminder-utils.js');
 const { expandRecurringInRange } = require('./recurring-manager.js');
 
 function groupBy(items, key) {
@@ -53,13 +55,21 @@ function sortByStartTime(items) {
 }
 
 function buildSummary(items) {
+  const byStateLabel = items.reduce((accumulator, item) => {
+    const label = item.state?.label || 'unknown';
+    accumulator[label] = (accumulator[label] || 0) + 1;
+    return accumulator;
+  }, {});
+
   return {
     total: items.length,
     byType: groupBy(items, 'type'),
     byPriority: groupBy(items, 'priority'),
+    byStateLabel,
     withReminders: items.filter((item) => item.reminders?.enabled).length,
     completed: items.filter((item) => Boolean(item.completedAt)).length,
-    cancelled: items.filter((item) => Boolean(item.cancelledAt)).length
+    cancelled: items.filter((item) => Boolean(item.cancelledAt)).length,
+    pastUncompleted: items.filter((item) => item.state?.label === '已过时间，未标记完成').length
   };
 }
 
@@ -83,8 +93,10 @@ function isEventIndexable(event) {
 function buildCourseInstance(course, date, weekNumber, timezone) {
   const startAt = toUTC(date, course.schedule?.startTime, timezone);
   const endAt = course.schedule?.endTime ? toUTC(date, course.schedule.endTime, timezone) : null;
+  const now = new Date();
+  const reminders = normalizeSharedReminders(course.reminders || {}, () => `stage-${Math.random().toString(36).slice(2, 10)}`);
 
-  return {
+  const item = {
     id: `${course.id}:${date}:${course.schedule?.startTime || '00:00'}`,
     sourceId: course.id,
     sourceType: 'course',
@@ -104,7 +116,7 @@ function buildCourseInstance(course, date, weekNumber, timezone) {
       endTime: course.schedule?.endTime || null,
       timezone
     },
-    reminders: course.reminders || { enabled: false, stages: [] },
+    reminders,
     priority: course.priority || null,
     completedAt: null,
     cancelledAt: null,
@@ -114,6 +126,11 @@ function buildCourseInstance(course, date, weekNumber, timezone) {
       weekNumber,
       sourceUpdatedAt: course.metadata?.updatedAt || null
     }
+  };
+
+  return {
+    ...item,
+    state: deriveItemState(item, now)
   };
 }
 
@@ -147,6 +164,8 @@ function buildCourseInstancesForDate(dateString, options = {}) {
 function buildEventInstance(event, timezone) {
   const localStart = toLocal(event.startAt, timezone);
   const localEnd = event.endAt ? toLocal(event.endAt, timezone) : null;
+  const now = new Date();
+  const reminders = normalizeSharedReminders(event.reminders || {}, () => `stage-${Math.random().toString(36).slice(2, 10)}`);
   const display = event.display || {
     date: localStart?.date || null,
     startTime: localStart?.time || null,
@@ -154,7 +173,7 @@ function buildEventInstance(event, timezone) {
     timezone
   };
 
-  return {
+  const item = {
     id: event.id,
     sourceId: event.id,
     sourceType: 'event',
@@ -168,7 +187,7 @@ function buildEventInstance(event, timezone) {
     startAt: event.startAt,
     endAt: event.endAt || null,
     display,
-    reminders: event.reminders || { enabled: false, stages: [] },
+    reminders,
     priority: event.priority || null,
     completedAt: event.completedAt || null,
     cancelledAt: event.cancelledAt || null,
@@ -177,6 +196,11 @@ function buildEventInstance(event, timezone) {
       source: event.metadata?.source || 'natural-language',
       sourceUpdatedAt: event.metadata?.updatedAt || null
     }
+  };
+
+  return {
+    ...item,
+    state: deriveItemState(item, now)
   };
 }
 
@@ -204,7 +228,17 @@ function buildRecurringInstancesForRange(rangeStart, rangeEnd) {
       sourceId: instance.recurringId,
       sourceType: 'recurring',
       source: 'recurring',
-      type: 'recurring'
+      type: 'recurring',
+      state: deriveItemState(
+        {
+          ...instance,
+          sourceId: instance.recurringId,
+          sourceType: 'recurring',
+          source: 'recurring',
+          type: 'recurring'
+        },
+        new Date()
+      )
     }))
   );
 }

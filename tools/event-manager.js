@@ -12,7 +12,8 @@ const {
   toLocal
 } = require('./file-ops.js');
 const { detectEventConflicts } = require('./conflict-detector.js');
-const { syncReminderCronsForSource, buildAdHocReminderStage } = require('./cron-manager.js');
+const { normalizeReminders: normalizeSharedReminders } = require('./reminder-utils.js');
+const { syncReminderCronsForSource, buildAdHocReminderStage, clearReminderCrons } = require('./cron-manager.js');
 
 function cleanText(value) {
   if (value === null || value === undefined) {
@@ -47,28 +48,8 @@ function normalizePriority(priority) {
   return ['high', 'medium', 'low'].includes(normalized) ? normalized : null;
 }
 
-function normalizeReminderStages(stages = []) {
-  if (!Array.isArray(stages)) {
-    return [];
-  }
-
-  return stages.map((stage) => ({
-    id: stage.id || generateStageId(),
-    offset: Math.max(0, Number(stage.offset) || 0),
-    offsetUnit: ['minutes', 'hours', 'days'].includes(stage.offsetUnit) ? stage.offsetUnit : 'minutes',
-    cronJobIds: Array.isArray(stage.cronJobIds) ? stage.cronJobIds : [],
-    triggerTime: stage.triggerTime || null,
-    createdAt: stage.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }));
-}
-
 function normalizeReminders(reminders = {}) {
-  const stages = normalizeReminderStages(reminders.stages || []);
-  return {
-    enabled: reminders.enabled === true && stages.length > 0,
-    stages
-  };
+  return normalizeSharedReminders(reminders, generateStageId);
 }
 
 function normalizeDisplayFromUtc(startAt, endAt, timezone) {
@@ -148,9 +129,28 @@ function buildEventPayload(input = {}, currentEvent = null) {
     }
   });
 
-  const reminders = normalizeReminders(
+  let reminders = normalizeReminders(
     input.reminders !== undefined ? input.reminders : (currentEvent && currentEvent.reminders) || {}
   );
+  let completedAt =
+    input.completedAt !== undefined ? input.completedAt : (currentEvent && currentEvent.completedAt) || null;
+  let cancelledAt =
+    input.cancelledAt !== undefined ? input.cancelledAt : (currentEvent && currentEvent.cancelledAt) || null;
+  let cancelNote = resolveTextField(input, 'cancelNote', (currentEvent && currentEvent.cancelNote) || null);
+
+  if (completedAt) {
+    cancelledAt = null;
+    cancelNote = null;
+  } else if (cancelledAt) {
+    completedAt = null;
+  }
+
+  if (completedAt || cancelledAt) {
+    reminders = {
+      ...reminders,
+      enabled: false
+    };
+  }
 
   return {
     id: (currentEvent && currentEvent.id) || input.id || generateEventId(),
@@ -162,11 +162,9 @@ function buildEventPayload(input = {}, currentEvent = null) {
     endAt: timing.endAt || null,
     display: timing.display,
     reminders,
-    completedAt:
-      input.completedAt !== undefined ? input.completedAt : (currentEvent && currentEvent.completedAt) || null,
-    cancelledAt:
-      input.cancelledAt !== undefined ? input.cancelledAt : (currentEvent && currentEvent.cancelledAt) || null,
-    cancelNote: resolveTextField(input, 'cancelNote', (currentEvent && currentEvent.cancelNote) || null),
+    completedAt,
+    cancelledAt,
+    cancelNote,
     priority:
       input.priority !== undefined ? normalizePriority(input.priority) : normalizePriority(currentEvent && currentEvent.priority),
     metadata: {
@@ -174,6 +172,17 @@ function buildEventPayload(input = {}, currentEvent = null) {
       source: input.metadata?.source || currentEvent?.metadata?.source || 'natural-language',
       createdAt: currentEvent?.metadata?.createdAt || now,
       updatedAt: now
+    }
+  };
+}
+
+function clearEventReminderRuntime(currentEvent, options = {}) {
+  const cleared = clearReminderCrons(currentEvent.reminders || {}, options.dependencies || {});
+  return {
+    cleanup: cleared,
+    reminders: {
+      ...cleared.reminders,
+      enabled: false
     }
   };
 }
@@ -311,14 +320,17 @@ function addEventReminderStage(eventId, stage = {}, options = {}) {
   );
 }
 
-function completeEvent(eventId, completedAt = null) {
+function completeEvent(eventId, completedAt = null, options = {}) {
   const currentEvent = getEventById(eventId);
   if (!currentEvent) {
     return { success: false, error: 'Event not found.' };
   }
 
+  const cleared = clearEventReminderRuntime(currentEvent, options);
+
   const nextEvent = {
     ...currentEvent,
+    reminders: cleared.reminders,
     completedAt: completedAt || new Date().toISOString(),
     cancelledAt: null,
     cancelNote: null,
@@ -331,18 +343,29 @@ function completeEvent(eventId, completedAt = null) {
   saveEvent(nextEvent);
   return {
     success: true,
-    event: nextEvent
+    partialSuccess: cleared.cleanup.failures.length > 0,
+    event: nextEvent,
+    deletedCrons: cleared.cleanup.deletedCount,
+    deletedCronIds: cleared.cleanup.deletedCronIds,
+    failures: cleared.cleanup.failures,
+    warning:
+      cleared.cleanup.failures.length > 0
+        ? 'Event was marked completed, but some reminder cron jobs failed to delete.'
+        : null
   };
 }
 
-function cancelEvent(eventId, cancelNote = null, cancelledAt = null) {
+function cancelEvent(eventId, cancelNote = null, cancelledAt = null, options = {}) {
   const currentEvent = getEventById(eventId);
   if (!currentEvent) {
     return { success: false, error: 'Event not found.' };
   }
 
+  const cleared = clearEventReminderRuntime(currentEvent, options);
+
   const nextEvent = {
     ...currentEvent,
+    reminders: cleared.reminders,
     completedAt: null,
     cancelledAt: cancelledAt || new Date().toISOString(),
     cancelNote: cleanText(cancelNote),
@@ -355,7 +378,15 @@ function cancelEvent(eventId, cancelNote = null, cancelledAt = null) {
   saveEvent(nextEvent);
   return {
     success: true,
-    event: nextEvent
+    partialSuccess: cleared.cleanup.failures.length > 0,
+    event: nextEvent,
+    deletedCrons: cleared.cleanup.deletedCount,
+    deletedCronIds: cleared.cleanup.deletedCronIds,
+    failures: cleared.cleanup.failures,
+    warning:
+      cleared.cleanup.failures.length > 0
+        ? 'Event was marked cancelled, but some reminder cron jobs failed to delete.'
+        : null
   };
 }
 

@@ -134,6 +134,33 @@ OPENCLAW_WORKSPACE=/your/openclaw/workspace
 - 创建提醒
 - 提醒会优先走这个 skill 自己的 reminder 逻辑，而不是绕过 skill 直接调系统级临时提醒
 
+提醒文案默认会尽量写得简短、自然、像正常聊天提醒。
+
+如果你想自定义提醒文案风格，也可以在 `settings.json` 里设置 `notify.reminderPromptTemplate`。
+例如你希望提醒语气更温和，或者更像待办通知，都可以改。
+
+可用占位符：
+
+- `{{title}}`
+- `{{date}}`
+- `{{time}}`
+- `{{summary}}`
+- `{{location}}`
+- `{{lead_time}}`
+- `{{channel}}`
+
+示例：
+
+```json
+{
+  "notify": {
+    "reminderPromptTemplate": "提醒你：{{date}} {{time}} 有“{{title}}”。{{summary}}"
+  }
+}
+```
+
+如果不设置这一项，skill 会使用内置的默认提醒风格。
+
 ### 4. 添加周期事件
 
 ```text
@@ -219,6 +246,7 @@ $OPENCLAW_WORKSPACE/ustc-claw-calendar/data
 
 主要数据文件：
 
+- `settings.json`：显示时区、提醒文案模板等用户设置
 - `courses.json`：课程主存储
 - `events.json`：一次性事件主存储
 - `recurring.json`：周期事件规则主存储
