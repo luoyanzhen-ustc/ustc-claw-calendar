@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 const { execSync } = require('child_process');
-const { syncChannels, getEffectiveUserChannelConfig, buildWeixinAccountName, buildQQTarget } = require('./channel-sync.js');
+const {
+  syncChannels,
+  getEffectiveUserChannelConfig,
+  buildWeixinAccountName,
+  buildQQTarget
+} = require('./channel-sync.js');
+
+const MIN_SCHEDULE_LEAD_MS = 5000;
 
 function getUserChannelConfig(options = {}) {
   return getEffectiveUserChannelConfig(options) || {
@@ -102,20 +109,31 @@ function createCronJob(name, schedule, payloadMessage, channelConfig, options = 
 
   try {
     const payload = JSON.parse(result.output);
+    const cronJobId = payload.id || payload.jobId || payload.job?.id || null;
+    if (!cronJobId) {
+      return {
+        success: false,
+        channel: channelConfig.channel,
+        to: channelConfig.to,
+        error: 'Cron creation returned no job id.',
+        output: result.output
+      };
+    }
+
     return {
       success: true,
-      cronJobId: payload.id,
+      cronJobId,
       channel: channelConfig.channel,
       to: channelConfig.to,
       rawData: payload
     };
   } catch (error) {
     return {
-      success: true,
-      cronJobId: null,
+      success: false,
       channel: channelConfig.channel,
       to: channelConfig.to,
-      rawData: result.output
+      error: 'Failed to parse cron creation response.',
+      output: result.output
     };
   }
 }
@@ -144,43 +162,94 @@ function listCalendarCrons() {
 }
 
 function createReminderPrompt(event, offset, offsetUnit, channel) {
-  const displayDate = event.schedule.displayDate || event.schedule.date || '未设置日期';
-  const displayTime = event.schedule.displayTime || event.schedule.startTime || '未设置时间';
-  const unitText = offsetUnit === 'days' ? '天' : offsetUnit === 'hours' ? '小时' : '分钟';
+  const displayDate = event.schedule.displayDate || event.schedule.date || 'date unavailable';
+  const displayTime = event.schedule.displayTime || event.schedule.startTime || 'time unavailable';
+  const unitText = offsetUnit === 'days' ? 'days' : offsetUnit === 'hours' ? 'hours' : 'minutes';
 
   return [
-    '你是日历提醒助手。',
-    '请直接生成一条提醒文案，输出给用户即可。',
-    `事件标题：${event.title}`,
-    `事件时间：${displayDate} ${displayTime}（北京时间）`,
-    event.location ? `事件地点：${event.location}` : null,
-    `提醒提前量：${offset}${unitText}`,
-    `渠道：${channel === 'qq' ? 'QQ' : '微信'}`,
-    '要求：',
-    '1. 用北京时间表达，不要使用 UTC。',
-    '2. 不要调用任何工具。',
-    '3. 不要输出内部字段、渠道 ID 或系统说明。',
-    '4. 保持简短、自然、像真人提醒。'
-  ].filter(Boolean).join('\n');
+    'You are a calendar reminder assistant.',
+    'Reply with a short reminder message for the user.',
+    `Event title: ${event.title}`,
+    `Event time: ${displayDate} ${displayTime} (Beijing time)`,
+    event.location ? `Location: ${event.location}` : null,
+    `Lead time: ${offset} ${unitText}`,
+    `Channel: ${channel === 'qq' ? 'QQ' : 'WeChat'}`,
+    'Requirements:',
+    '1. Use Beijing time wording, not UTC.',
+    '2. Do not call any tools.',
+    '3. Do not mention internal ids or system fields.',
+    '4. Keep it short and natural.'
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function getOffsetMultiplier(offsetUnit) {
+  if (offsetUnit === 'days') {
+    return 24 * 60 * 60 * 1000;
+  }
+
+  if (offsetUnit === 'hours') {
+    return 60 * 60 * 1000;
+  }
+
+  return 60 * 1000;
+}
+
+function resolveReminderTriggerTime(eventTime, offset, offsetUnit) {
+  const eventDate = new Date(eventTime);
+  if (Number.isNaN(eventDate.getTime())) {
+    return { success: false, error: 'Invalid event time for reminder scheduling.' };
+  }
+
+  const now = new Date();
+  if (eventDate.getTime() <= now.getTime()) {
+    return { success: false, error: 'Event time is already in the past.' };
+  }
+
+  const requestedOffset = Math.max(0, Number(offset) || 0);
+  const triggerDate = new Date(eventDate.getTime() - requestedOffset * getOffsetMultiplier(offsetUnit));
+  if (triggerDate.getTime() <= now.getTime()) {
+    const fallbackTime = new Date(Math.max(eventDate.getTime(), now.getTime() + MIN_SCHEDULE_LEAD_MS));
+    return {
+      success: true,
+      triggerTime: fallbackTime.toISOString(),
+      adjusted: true,
+      requestedOffset,
+      effectiveOffset: fallbackTime.getTime() === eventDate.getTime() ? 0 : null,
+      adjustmentReason: 'requested-trigger-time-was-in-the-past'
+    };
+  }
+
+  return {
+    success: true,
+    triggerTime: triggerDate.toISOString(),
+    adjusted: false,
+    requestedOffset,
+    effectiveOffset: requestedOffset,
+    adjustmentReason: null
+  };
 }
 
 function createReminderCron({ eventId, stageId, event, eventTime, offset, offsetUnit }) {
   syncChannels();
   const enabledChannels = getEnabledChannels();
   if (enabledChannels.length === 0) {
-    return { success: false, error: '未检测到可用的 QQ/微信 bot 渠道配置' };
+    return { success: false, error: 'No available QQ or WeChat bot channel configuration was detected.' };
   }
 
-  const eventDate = new Date(eventTime);
-  const multiplier = offsetUnit === 'days' ? 24 * 60 * 60 * 1000 : offsetUnit === 'hours' ? 60 * 60 * 1000 : 60 * 1000;
-  const triggerTime = new Date(eventDate.getTime() - offset * multiplier).toISOString();
+  const timing = resolveReminderTriggerTime(eventTime, offset, offsetUnit);
+  if (!timing.success) {
+    return timing;
+  }
 
   const created = [];
+  const failures = [];
   for (const channel of enabledChannels) {
     const cronName = `ustc-claw-calendar-${eventId}-${stageId}-${channel.type}`;
     const result = createCronJob(
       cronName,
-      { kind: 'at', at: triggerTime },
+      { kind: 'at', at: timing.triggerTime },
       createReminderPrompt(event, offset, offsetUnit, channel.type),
       channel
     );
@@ -191,17 +260,40 @@ function createReminderCron({ eventId, stageId, event, eventTime, offset, offset
         cronJobId: result.cronJobId,
         to: channel.to
       });
+    } else {
+      failures.push({
+        channel: channel.channel,
+        to: channel.to,
+        error: result.error || 'Failed to create cron job.',
+        output: result.output || null
+      });
     }
   }
 
   if (created.length === 0) {
-    return { success: false, error: '未成功创建提醒 Cron 任务' };
+    return {
+      success: false,
+      error: 'Failed to create reminder cron jobs.',
+      triggerTime: timing.triggerTime,
+      adjusted: timing.adjusted,
+      adjustmentReason: timing.adjustmentReason,
+      requestedOffset: timing.requestedOffset,
+      effectiveOffset: timing.effectiveOffset,
+      failures
+    };
   }
 
   return {
-    success: true,
-    triggerTime,
-    channels: created
+    success: failures.length === 0,
+    partialSuccess: failures.length > 0,
+    triggerTime: timing.triggerTime,
+    adjusted: timing.adjusted,
+    adjustmentReason: timing.adjustmentReason,
+    requestedOffset: timing.requestedOffset,
+    effectiveOffset: timing.effectiveOffset,
+    channels: created,
+    failures,
+    error: failures.length > 0 ? 'Some reminder cron jobs failed to create.' : null
   };
 }
 
@@ -209,11 +301,12 @@ function updateReminderCrons(eventId, newEventTime) {
   const { getPlanById, savePlan } = require('./file-ops.js');
   const event = getPlanById(eventId);
   if (!event) {
-    return { success: false, error: '事件不存在' };
+    return { success: false, error: 'Event not found.' };
   }
 
   const deleted = deleteReminderCrons(eventId);
   const createdCronIds = [];
+  const failures = [];
 
   for (const stage of event.reminderStages || []) {
     const result = createReminderCron({
@@ -225,14 +318,50 @@ function updateReminderCrons(eventId, newEventTime) {
       offsetUnit: stage.offsetUnit || 'minutes'
     });
 
-    if (result.success) {
+    if (Array.isArray(result.channels) && result.channels.length > 0) {
       stage.cronJobIds = result.channels.map((channel) => channel.cronJobId);
       stage.triggerTime = result.triggerTime;
       createdCronIds.push(...stage.cronJobIds);
+    } else {
+      stage.cronJobIds = [];
+      stage.triggerTime = null;
+    }
+
+    if (!result.success) {
+      failures.push({
+        stageId: stage.id,
+        error: result.error || 'Failed to recreate reminder cron jobs.',
+        partialSuccess: Boolean(result.partialSuccess),
+        triggerTime: result.triggerTime || null,
+        failures: result.failures || []
+      });
     }
   }
 
   savePlan(event);
+
+  if ((event.reminderStages || []).length > 0 && createdCronIds.length === 0) {
+    return {
+      success: false,
+      deletedCrons: deleted.deletedCount || 0,
+      createdCrons: 0,
+      cronJobIds: [],
+      failures,
+      error: 'No reminder cron jobs were recreated.'
+    };
+  }
+
+  if (failures.length > 0) {
+    return {
+      success: false,
+      partialSuccess: true,
+      deletedCrons: deleted.deletedCount || 0,
+      createdCrons: createdCronIds.length,
+      cronJobIds: createdCronIds,
+      failures,
+      error: 'Some reminder cron jobs failed to recreate.'
+    };
+  }
 
   return {
     success: true,
@@ -291,5 +420,6 @@ module.exports = {
   getUserChannelConfig,
   getEnabledChannels,
   exec,
-  parseCronList
+  parseCronList,
+  resolveReminderTriggerTime
 };

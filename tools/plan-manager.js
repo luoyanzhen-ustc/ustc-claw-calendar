@@ -20,7 +20,6 @@ function parseTime(timeStr) {
 
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
-
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
     return null;
   }
@@ -59,18 +58,17 @@ function calculateEventTime(schedule, timezone = 'Asia/Shanghai') {
 function createDefaultStages(priority = 'medium') {
   const settings = readSettings();
   const defaults = settings.reminderDefaults || {
-    high: [1440, 60],
-    medium: [30],
-    low: [10]
+    high: [0],
+    medium: [0],
+    low: [0]
   };
-
   const offsets = defaults[priority] || defaults.medium || [];
 
   return offsets.map((offset) => ({
     id: generateStageId(),
     offset,
     offsetUnit: 'minutes',
-    message: `${offset} 分钟后有安排`,
+    message: Number(offset) === 0 ? 'Event reminder' : `Event reminder (${offset} minutes early)`,
     priority,
     cronJobIds: [],
     pushedChannels: {},
@@ -78,10 +76,34 @@ function createDefaultStages(priority = 'medium') {
   }));
 }
 
+function applyReminderResultToStage(stage, cronResult) {
+  if (!Array.isArray(cronResult.channels) || cronResult.channels.length === 0) {
+    stage.cronJobIds = [];
+    stage.triggerTime = null;
+    stage.pushedChannels = {};
+    return [];
+  }
+
+  stage.cronJobIds = cronResult.channels.map((channel) => channel.cronJobId);
+  stage.triggerTime = cronResult.triggerTime;
+  stage.pushedChannels = Object.fromEntries(
+    cronResult.channels.map((channel) => [
+      channel.channel,
+      {
+        pushedAt: null,
+        cronJobId: channel.cronJobId,
+        status: 'pending'
+      }
+    ])
+  );
+
+  return stage.cronJobIds;
+}
+
 function appendPlan(plan) {
   const schedule = normalizeSchedule(plan.schedule || {});
   if (!schedule.utcStart) {
-    return { success: false, error: '无法解析事件时间' };
+    return { success: false, error: 'Unable to parse event time.' };
   }
 
   const event = {
@@ -92,9 +114,10 @@ function appendPlan(plan) {
     schedule,
     location: plan.location || null,
     description: plan.description || null,
-    reminderStages: Array.isArray(plan.reminderStages) && plan.reminderStages.length > 0
-      ? plan.reminderStages
-      : createDefaultStages(plan.priority || 'medium'),
+    reminderStages:
+      Array.isArray(plan.reminderStages) && plan.reminderStages.length > 0
+        ? plan.reminderStages
+        : createDefaultStages(plan.priority || 'medium'),
     notify: plan.notify || {
       channels: ['qq', 'wechat'],
       enabled: true
@@ -118,6 +141,7 @@ function appendPlan(plan) {
   savePlan(event);
 
   const createdCrons = [];
+  const reminderFailures = [];
   for (const stage of event.reminderStages) {
     const cronResult = createReminderCron({
       eventId: event.id,
@@ -128,24 +152,43 @@ function appendPlan(plan) {
       offsetUnit: stage.offsetUnit || 'minutes'
     });
 
-    if (cronResult.success) {
-      stage.cronJobIds = cronResult.channels.map((channel) => channel.cronJobId);
-      stage.triggerTime = cronResult.triggerTime;
-      stage.pushedChannels = Object.fromEntries(
-        cronResult.channels.map((channel) => [
-          channel.channel,
-          {
-            pushedAt: null,
-            cronJobId: channel.cronJobId,
-            status: 'pending'
-          }
-        ])
-      );
-      createdCrons.push(...stage.cronJobIds);
+    createdCrons.push(...applyReminderResultToStage(stage, cronResult));
+
+    if (!cronResult.success) {
+      reminderFailures.push({
+        stageId: stage.id,
+        error: cronResult.error || 'Failed to create reminder cron jobs.',
+        partialSuccess: Boolean(cronResult.partialSuccess),
+        triggerTime: cronResult.triggerTime || null,
+        failures: cronResult.failures || []
+      });
     }
   }
 
   savePlan(event);
+
+  if (event.reminderStages.length > 0 && createdCrons.length === 0) {
+    return {
+      success: false,
+      eventSaved: true,
+      event,
+      createdCrons: 0,
+      reminderFailures,
+      error: 'Plan was saved, but no reminder cron jobs were created.'
+    };
+  }
+
+  if (reminderFailures.length > 0) {
+    return {
+      success: false,
+      partialSuccess: true,
+      eventSaved: true,
+      event,
+      createdCrons: createdCrons.length,
+      reminderFailures,
+      error: 'Plan was saved, but some reminder cron jobs failed to create.'
+    };
+  }
 
   return {
     success: true,
@@ -157,7 +200,7 @@ function appendPlan(plan) {
 function updatePlan(planId, updates = {}) {
   const event = getPlanById(planId);
   if (!event) {
-    return { success: false, error: '事件不存在' };
+    return { success: false, error: 'Event not found.' };
   }
 
   let updatedSchedule = event.schedule;
@@ -168,7 +211,7 @@ function updatePlan(planId, updates = {}) {
     });
 
     if (!updatedSchedule.utcStart) {
-      return { success: false, error: '无法解析新的事件时间' };
+      return { success: false, error: 'Unable to parse updated event time.' };
     }
   }
 
@@ -185,7 +228,26 @@ function updatePlan(planId, updates = {}) {
   savePlan(updatedEvent);
 
   if (updates.schedule) {
-    updateReminderCrons(planId, updatedSchedule.utcStart);
+    const reminderResult = updateReminderCrons(planId, updatedSchedule.utcStart);
+    if (!reminderResult.success) {
+      return {
+        success: false,
+        eventUpdated: true,
+        partialSuccess: Boolean(reminderResult.partialSuccess),
+        event: getPlanById(planId) || updatedEvent,
+        error: reminderResult.error,
+        createdCrons: reminderResult.createdCrons || 0,
+        deletedCrons: reminderResult.deletedCrons || 0,
+        reminderFailures: reminderResult.failures || []
+      };
+    }
+
+    return {
+      success: true,
+      event: getPlanById(planId) || updatedEvent,
+      createdCrons: reminderResult.createdCrons || 0,
+      deletedCrons: reminderResult.deletedCrons || 0
+    };
   }
 
   return {
@@ -197,7 +259,7 @@ function updatePlan(planId, updates = {}) {
 function deletePlan(planId) {
   const event = getPlanById(planId);
   if (!event) {
-    return { success: false, error: '事件不存在' };
+    return { success: false, error: 'Event not found.' };
   }
 
   const cronResult = deleteReminderCrons(planId);
@@ -209,10 +271,10 @@ function deletePlan(planId) {
   };
 }
 
-function cancelPlan(planId, reason = '用户取消') {
+function cancelPlan(planId, reason = 'Cancelled by user') {
   const event = getPlanById(planId);
   if (!event) {
-    return { success: false, error: '事件不存在' };
+    return { success: false, error: 'Event not found.' };
   }
 
   deleteReminderCrons(planId);
@@ -232,7 +294,7 @@ function cancelPlan(planId, reason = '用户取消') {
 function completePlan(planId) {
   const event = getPlanById(planId);
   if (!event) {
-    return { success: false, error: '事件不存在' };
+    return { success: false, error: 'Event not found.' };
   }
 
   event.lifecycle = {

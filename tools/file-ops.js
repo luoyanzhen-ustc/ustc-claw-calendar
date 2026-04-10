@@ -21,6 +21,16 @@ const {
 } = require('./path-utils.js');
 
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
+const DEFAULT_REMINDER_DEFAULTS = {
+  high: [0],
+  medium: [0],
+  low: [0]
+};
+const LEGACY_REMINDER_DEFAULTS = {
+  high: [1440, 60],
+  medium: [30],
+  low: [10]
+};
 
 function ensureDirExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -157,9 +167,7 @@ function buildSettingsDefaults(overrides = {}) {
       wechat: { enabled: false }
     },
     reminderDefaults: {
-      high: [1440, 60],
-      medium: [30],
-      low: [10]
+      ...DEFAULT_REMINDER_DEFAULTS
     },
     quietHours: {
       enabled: true,
@@ -168,6 +176,26 @@ function buildSettingsDefaults(overrides = {}) {
     },
     ...overrides
   };
+}
+
+function sameNumberArray(a = [], b = []) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+    return false;
+  }
+
+  return a.every((value, index) => Number(value) === Number(b[index]));
+}
+
+function isLegacyReminderDefaults(reminderDefaults) {
+  if (!reminderDefaults || typeof reminderDefaults !== 'object') {
+    return false;
+  }
+
+  return (
+    sameNumberArray(reminderDefaults.high, LEGACY_REMINDER_DEFAULTS.high) &&
+    sameNumberArray(reminderDefaults.medium, LEGACY_REMINDER_DEFAULTS.medium) &&
+    sameNumberArray(reminderDefaults.low, LEGACY_REMINDER_DEFAULTS.low)
+  );
 }
 
 function buildKnownUsersDefaults() {
@@ -206,6 +234,12 @@ function normalizeWeixinAccountId(value) {
 function mergeSettings(rawSettings) {
   const defaults = buildSettingsDefaults();
   const settings = rawSettings || {};
+  const reminderDefaults = isLegacyReminderDefaults(settings.reminderDefaults)
+    ? defaults.reminderDefaults
+    : {
+        ...defaults.reminderDefaults,
+        ...(settings.reminderDefaults || {})
+      };
 
   return {
     ...defaults,
@@ -222,10 +256,7 @@ function mergeSettings(rawSettings) {
         ...((settings.notify || {}).wechat || {})
       }
     },
-    reminderDefaults: {
-      ...defaults.reminderDefaults,
-      ...(settings.reminderDefaults || {})
-    },
+    reminderDefaults,
     quietHours: {
       ...defaults.quietHours,
       ...(settings.quietHours || {})
