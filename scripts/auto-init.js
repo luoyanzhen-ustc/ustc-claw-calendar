@@ -11,8 +11,8 @@ const {
   writeCourses,
   readRecurring,
   writeRecurring,
-  readPlans,
-  writePlans,
+  readEvents,
+  writeEvents,
   getKnownUsersPath
 } = require('../tools/file-ops.js');
 const { getCurrentWeek } = require('../tools/date-math.js');
@@ -94,9 +94,9 @@ function initializeFiles(semesterName) {
     writeRecurring({ ...recurring, recurring: [] });
   }
 
-  const plans = readPlans();
-  if (!Array.isArray(plans.plans)) {
-    writePlans({ ...plans, plans: [] });
+  const events = readEvents();
+  if (!Array.isArray(events.events)) {
+    writeEvents({ ...events, events: [] });
   }
 }
 
@@ -130,8 +130,8 @@ function initializeSemester(options = {}) {
     weekMapping: generateWeekMapping(startDate),
     stats: {
       totalCourses: readCourses().courses.length,
+      totalEvents: readEvents().events.length,
       totalRecurring: readRecurring().recurring.length,
-      totalPlans: readPlans().plans.length,
       byStatus: previousMetadata.stats?.byStatus || {}
     }
   });

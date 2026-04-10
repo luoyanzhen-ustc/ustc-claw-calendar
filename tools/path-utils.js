@@ -40,8 +40,8 @@ function getSettingsFile() {
   return path.join(getDataDir(), 'settings.json');
 }
 
-function getPlansFile() {
-  return path.join(getActiveDir(), 'plans.json');
+function getEventsFile() {
+  return path.join(getActiveDir(), 'events.json');
 }
 
 function getCoursesFile() {
@@ -76,6 +76,10 @@ function getTodayIndexFile() {
   return path.join(getIndexDir(), 'today.json');
 }
 
+function getThisWeekIndexFile() {
+  return path.join(getIndexDir(), 'this-week.json');
+}
+
 function getUpcomingIndexFile() {
   return path.join(getIndexDir(), 'upcoming.json');
 }
@@ -98,7 +102,7 @@ module.exports = {
   getIndexDir,
   getImportDraftsDir,
   getSettingsFile,
-  getPlansFile,
+  getEventsFile,
   getCoursesFile,
   getRecurringFile,
   getKnownUsersPath,
@@ -107,6 +111,7 @@ module.exports = {
   getOpenClawWeixinAccountsDir,
   getMetadataFile,
   getTodayIndexFile,
+  getThisWeekIndexFile,
   getUpcomingIndexFile,
   getLatestCourseImportDraftFile,
   getCourseImportDraftFile

@@ -21,14 +21,16 @@ function setupCronJobs() {
     {
       name: 'ustc-claw-calendar-daily',
       schedule: '0 2 * * *',
-      description: '每日索引重建',
-      message: '执行每日索引重建任务。调用 calendar_build_today_index、calendar_build_upcoming_index 和 calendar_cleanup_expired。完成后回复 HEARTBEAT_OK。'
+      description: 'daily indexes refresh',
+      message:
+        '执行 USTC Claw Calendar 的每日维护任务：重建 today、this-week、upcoming 三个索引，并汇报结果。完成后回复 HEARTBEAT_OK。'
     },
     {
       name: 'ustc-claw-calendar-weekly',
       schedule: '0 0 * * 1',
-      description: '每周总结归档',
-      message: '执行每周总结归档任务。调用 calendar_archive_last_week 和 calendar_generate_weekly_report。完成后回复 HEARTBEAT_OK。'
+      description: 'weekly report and archive snapshot',
+      message:
+        '执行 USTC Claw Calendar 的每周维护任务：重建索引、生成上周周报，并写入上周 raw 快照归档。完成后回复 HEARTBEAT_OK。'
     }
   ];
 

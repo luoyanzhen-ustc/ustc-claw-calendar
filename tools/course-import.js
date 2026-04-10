@@ -330,6 +330,11 @@ function coursesToCourseEntries(courses, semesterStart = null) {
       weekRanges: parseWeekRanges(course.weeks || ''),
       semesterStart
     },
+    reminders: {
+      enabled: false,
+      stages: []
+    },
+    priority: null,
     lifecycle: {
       status: 'active'
     },

@@ -3,9 +3,13 @@
 const { main } = require('../tools/rebuild-index.js');
 
 try {
-  main();
-  console.log('每日任务执行完成');
+  const result = main();
+  console.log('Daily task completed.');
+  console.log(`- Today: ${result.todayIndex.date}`);
+  console.log(`- Today items: ${result.todayIndex.summary.total}`);
+  console.log(`- This week items: ${result.thisWeekIndex.summary.total}`);
+  console.log(`- Upcoming range: ${result.upcomingIndex.range.start} ~ ${result.upcomingIndex.range.end}`);
 } catch (error) {
-  console.error('每日任务执行失败:', error.message);
+  console.error('Daily task failed:', error.message);
   process.exit(1);
 }

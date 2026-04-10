@@ -8,12 +8,13 @@ const {
   getArchiveDir,
   getIndexDir,
   getSettingsFile,
-  getPlansFile,
+  getEventsFile,
   getCoursesFile,
   getRecurringFile,
   getKnownUsersPath,
   getMetadataFile,
   getTodayIndexFile,
+  getThisWeekIndexFile,
   getUpcomingIndexFile,
   getImportDraftsDir,
   getLatestCourseImportDraftFile,
@@ -106,8 +107,8 @@ function buildMetadataDefaults() {
     },
     stats: {
       totalCourses: 0,
+      totalEvents: 0,
       totalRecurring: 0,
-      totalPlans: 0,
       byStatus: {}
     },
     createdAt: new Date().toISOString(),
@@ -129,24 +130,24 @@ function buildCoursesDefaults() {
   };
 }
 
-function buildRecurringDefaults() {
+function buildEventsDefaults() {
   return {
     version: 1,
-    recurring: [],
+    events: [],
     metadata: {
-      totalRecurring: 0,
+      totalEvents: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
   };
 }
 
-function buildPlansDefaults() {
+function buildRecurringDefaults() {
   return {
-    version: 2,
-    plans: [],
+    version: 1,
+    recurring: [],
     metadata: {
-      timezone: DEFAULT_TIMEZONE,
+      totalRecurring: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -365,6 +366,11 @@ function readCourses() {
   return readJsonFile(getCoursesFile(), buildCoursesDefaults());
 }
 
+function readEvents() {
+  ensureDataLayout();
+  return readJsonFile(getEventsFile(), buildEventsDefaults());
+}
+
 function writeCourses(data) {
   const nextData = {
     ...buildCoursesDefaults(),
@@ -381,12 +387,37 @@ function writeCourses(data) {
   return writeJsonFile(getCoursesFile(), nextData);
 }
 
+function writeEvents(data) {
+  const nextData = {
+    ...buildEventsDefaults(),
+    ...data,
+    events: Array.isArray(data.events) ? data.events : [],
+    metadata: {
+      ...buildEventsDefaults().metadata,
+      ...((data && data.metadata) || {}),
+      totalEvents: Array.isArray(data.events) ? data.events.length : 0,
+      updatedAt: new Date().toISOString()
+    }
+  };
+
+  return writeJsonFile(getEventsFile(), nextData);
+}
+
 function replaceCourses(courses, extra = {}) {
   const current = readCourses();
   return writeCourses({
     ...current,
     ...extra,
     courses
+  });
+}
+
+function replaceEvents(events, extra = {}) {
+  const current = readEvents();
+  return writeEvents({
+    ...current,
+    ...extra,
+    events
   });
 }
 
@@ -411,56 +442,88 @@ function writeRecurring(data) {
   return writeJsonFile(getRecurringFile(), nextData);
 }
 
-function readPlans() {
-  ensureDataLayout();
-  return readJsonFile(getPlansFile(), buildPlansDefaults());
+function getCourseById(courseId) {
+  return readCourses().courses.find((course) => course.id === courseId) || null;
 }
 
-function writePlans(data) {
-  const nextData = {
-    ...buildPlansDefaults(),
-    ...data,
-    plans: Array.isArray(data.plans) ? data.plans : [],
-    metadata: {
-      ...buildPlansDefaults().metadata,
-      ...((data && data.metadata) || {}),
-      updatedAt: new Date().toISOString()
-    }
-  };
-
-  return writeJsonFile(getPlansFile(), nextData);
+function getEventById(eventId) {
+  return readEvents().events.find((event) => event.id === eventId) || null;
 }
 
-function getPlanById(planId) {
-  return readPlans().plans.find((plan) => plan.id === planId) || null;
+function getRecurringById(recurringId) {
+  return readRecurring().recurring.find((item) => item.id === recurringId) || null;
 }
 
-function savePlan(plan) {
-  const plansData = readPlans();
-  const planIndex = plansData.plans.findIndex((item) => item.id === plan.id);
+function saveCourse(course) {
+  const coursesData = readCourses();
+  const courseIndex = coursesData.courses.findIndex((item) => item.id === course.id);
 
-  if (planIndex === -1) {
-    plansData.plans.push(plan);
+  if (courseIndex === -1) {
+    coursesData.courses.push(course);
   } else {
-    plansData.plans[planIndex] = {
-      ...plansData.plans[planIndex],
-      ...plan
+    coursesData.courses[courseIndex] = {
+      ...coursesData.courses[courseIndex],
+      ...course
     };
   }
 
-  return writePlans(plansData);
+  return writeCourses(coursesData);
 }
 
-function deletePlanById(planId) {
-  const plansData = readPlans();
-  const nextPlans = plansData.plans.filter((plan) => plan.id !== planId);
+function saveEvent(event) {
+  const eventsData = readEvents();
+  const eventIndex = eventsData.events.findIndex((item) => item.id === event.id);
 
-  if (nextPlans.length === plansData.plans.length) {
+  if (eventIndex === -1) {
+    eventsData.events.push(event);
+  } else {
+    eventsData.events[eventIndex] = {
+      ...eventsData.events[eventIndex],
+      ...event
+    };
+  }
+
+  return writeEvents(eventsData);
+}
+
+function saveRecurringItem(recurringItem) {
+  const recurringData = readRecurring();
+  const recurringIndex = recurringData.recurring.findIndex((item) => item.id === recurringItem.id);
+
+  if (recurringIndex === -1) {
+    recurringData.recurring.push(recurringItem);
+  } else {
+    recurringData.recurring[recurringIndex] = {
+      ...recurringData.recurring[recurringIndex],
+      ...recurringItem
+    };
+  }
+
+  return writeRecurring(recurringData);
+}
+
+function deleteEventById(eventId) {
+  const eventsData = readEvents();
+  const nextEvents = eventsData.events.filter((event) => event.id !== eventId);
+
+  if (nextEvents.length === eventsData.events.length) {
     return false;
   }
 
-  plansData.plans = nextPlans;
-  return writePlans(plansData);
+  eventsData.events = nextEvents;
+  return writeEvents(eventsData);
+}
+
+function deleteRecurringById(recurringId) {
+  const recurringData = readRecurring();
+  const nextRecurring = recurringData.recurring.filter((item) => item.id !== recurringId);
+
+  if (nextRecurring.length === recurringData.recurring.length) {
+    return false;
+  }
+
+  recurringData.recurring = nextRecurring;
+  return writeRecurring(recurringData);
 }
 
 function readKnownUsers() {
@@ -498,6 +561,19 @@ function readTodayIndex() {
 
 function writeTodayIndex(data) {
   return writeJsonFile(getTodayIndexFile(), data);
+}
+
+function readThisWeekIndex() {
+  return readJsonFile(getThisWeekIndexFile(), {
+    generatedAt: null,
+    range: null,
+    days: [],
+    summary: {}
+  });
+}
+
+function writeThisWeekIndex(data) {
+  return writeJsonFile(getThisWeekIndexFile(), data);
 }
 
 function readUpcomingIndex() {
@@ -587,6 +663,10 @@ function generateEventId() {
   return `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generateRecurringId() {
+  return `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function generateStageId() {
   return `stage-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -601,20 +681,28 @@ module.exports = {
   readMetadata,
   writeMetadata,
   readCourses,
+  readEvents,
   writeCourses,
+  writeEvents,
   replaceCourses,
+  replaceEvents,
   readRecurring,
   writeRecurring,
-  readPlans,
-  writePlans,
-  getPlanById,
-  savePlan,
-  deletePlanById,
+  getCourseById,
+  getEventById,
+  getRecurringById,
+  saveCourse,
+  saveEvent,
+  saveRecurringItem,
+  deleteEventById,
+  deleteRecurringById,
   readKnownUsers,
   writeKnownUsers,
   normalizeKnownUsers,
   readTodayIndex,
   writeTodayIndex,
+  readThisWeekIndex,
+  writeThisWeekIndex,
   readUpcomingIndex,
   writeUpcomingIndex,
   readCourseImportDraft,
@@ -622,18 +710,20 @@ module.exports = {
   toUTC,
   toLocal,
   generateEventId,
+  generateRecurringId,
   generateStageId,
   getDataDir,
   getActiveDir,
   getArchiveDir,
   getIndexDir,
   getSettingsFile,
-  getPlansFile,
+  getEventsFile,
   getCoursesFile,
   getRecurringFile,
   getKnownUsersPath,
   getMetadataFile,
   getImportDraftsDir,
+  getThisWeekIndexFile,
   getLatestCourseImportDraftFile,
   getCourseImportDraftFile
 };

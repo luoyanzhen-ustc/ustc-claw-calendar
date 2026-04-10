@@ -4,27 +4,27 @@
 
 ## 适用场景
 
-- 上传课表图片并写入 `courses.json`
-- 管理临时计划、提醒、会议、待办，并写入 `plans.json`
+- 上传课表图片并导入 `courses.json`
+- 管理一次性事件并写入 `events.json`
+- 管理周期事件并写入 `recurring.json`
+- 给课程、事件、周期事件附加提醒
 - 首次安装后自动初始化学期信息
-- 默认按北京时间和用户交流
+- 默认按北京时间与用户交流
 - 自动同步 OpenClaw 已连通的 QQ / 微信 bot 渠道配置
 
 ## 一句话安装
-
-把这个仓库推到 GitHub 后，可以直接让 OpenClaw 帮你安装：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar
 ```
 
-如果你想让它安装后顺手完成初始化，可以直接说：
+如果希望安装后顺手完成初始化：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar，然后完成初始化
 ```
 
-如果你要指定学期起始日期：
+如果要指定学期起始日期：
 
 ```text
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar，然后把学期开始日期设为 2026-03-01 并完成初始化
@@ -32,13 +32,11 @@
 
 ## 手动一键安装
 
-如果你想手动安装，不通过对话安装，可直接运行：
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/luoyanzhen-ustc/ustc-claw-calendar/main/install.sh | bash
 ```
 
-如果你已经把仓库拉到本地，也可以直接：
+如果仓库已经在本地：
 
 ```bash
 bash install.sh
@@ -53,12 +51,6 @@ USTC_CLAW_CALENDAR_SETUP_CRON=1
 OPENCLAW_WORKSPACE=/your/openclaw/workspace
 ```
 
-如果你不指定日期，当前默认值是：
-
-```text
-2026-03-01
-```
-
 ## 安装后的初始化行为
 
 安装完成后，初始化脚本会：
@@ -66,16 +58,20 @@ OPENCLAW_WORKSPACE=/your/openclaw/workspace
 - 补齐 `settings.json`
 - 补齐 `metadata.json`
 - 创建空的 `courses.json`
+- 创建空的 `events.json`
 - 创建空的 `recurring.json`
-- 创建空的 `plans.json`
 - 自动同步并缓存渠道配置到 `known-users.json`
 - 自动按学期起始日期计算当前周
 
-如果还没检测到已连通的 QQ / 微信 bot，skill 会提示你先完成 bot 连通；正常情况下不需要手动填写任何渠道 ID。
+默认学期起始日期是：
+
+```text
+2026-03-01
+```
+
+如果还没有检测到已连通的 QQ / 微信 bot，skill 会提示先完成 bot 连通；正常情况下不需要用户手动填写任何渠道 ID。
 
 ## 常用脚本
-
-如果你或 Agent 需要显式执行脚本，优先使用这些命令：
 
 ```bash
 node scripts/install.js
@@ -89,7 +85,7 @@ node scripts/confirm-course-import.js
 node scripts/discard-course-import.js
 ```
 
-如果环境支持 `npm`，也可以使用：
+如果环境支持 `npm`：
 
 ```bash
 npm run init
@@ -104,16 +100,16 @@ npm run discard-course-import
 
 ## 课表导入流程
 
-当前推荐的课表导入链路是：
+推荐链路：
 
-1. Agent 优先用自身读图能力解析课表图片
-2. 如果当前模型不适合直接读图，再回退到 OCR 模型解析
-3. 对初步结果应用 USTC 规则修正
-4. 先保存为待确认草稿，不直接写入 `courses.json`
-5. 向用户展示识别摘要并确认
-6. 用户确认后再导入正式课程存储
+1. Agent 优先使用自身读图能力解析课表图片。
+2. 如果当前模型不适合直接读图，再回退到 OCR。
+3. 根据 USTC 规则修正星期、节次、周次和上课时间。
+4. 先保存为待确认草稿，不直接写入正式课程存储。
+5. 向用户展示识别摘要并确认。
+6. 用户确认后再写入 `courses.json`。
 
-可配合这些命令查看和确认：
+可配合以下命令：
 
 ```bash
 node scripts/review-course-import.js
@@ -121,7 +117,7 @@ node scripts/confirm-course-import.js
 node scripts/discard-course-import.js
 ```
 
-如果草稿里还有待复核项目，但你已经和用户逐项确认无误，可使用：
+若草稿仍有 `needsReview` 项，但用户已经逐项确认无误，可使用：
 
 ```bash
 node scripts/confirm-course-import.js --force
@@ -135,11 +131,26 @@ node scripts/confirm-course-import.js --force
 ~/.openclaw/workspace/ustc-claw-calendar/data
 ```
 
-如果设置了环境变量 `OPENCLAW_WORKSPACE`，则会写到：
+若设置了 `OPENCLAW_WORKSPACE`：
 
 ```text
 $OPENCLAW_WORKSPACE/ustc-claw-calendar/data
 ```
+
+## 当前数据模型
+
+- `courses.json`
+  课程表主存储
+- `events.json`
+  一次性事件主存储
+- `recurring.json`
+  周期事件规则主存储
+- `index/today.json`
+- `index/this-week.json`
+- `index/upcoming.json`
+  这些都是派生索引
+
+提醒是通用能力，可附加到课程、事件、周期事件。
 
 ## 仓库结构
 
@@ -164,24 +175,26 @@ ustc-claw-calendar/
     ├── archive-ops.js
     ├── channel-sync.js
     ├── course-import.js
+    ├── course-manager.js
     ├── cron-manager.js
     ├── date-math.js
+    ├── event-manager.js
     ├── file-ops.js
     ├── ocr-wrapper.js
     ├── path-utils.js
-    ├── plan-manager.js
+    ├── recurring-manager.js
     └── rebuild-index.js
 ```
 
 ## 当前约束
 
-- 不再依赖 `register-tools.js`
-- 不会把课表课程混写进 `plans.json`
+- 不再依赖 `register-tools`
+- 不会把课表课程混写进普通事件
 - `setup-cron.js` 只保留 daily / weekly 两类任务
 - 用户可见时间默认按北京时间表达
 
 ## 发布前建议
 
-- 把仓库推到 GitHub 根目录
+- 将仓库内容直接推到 GitHub 根目录
 - 确保 `SKILL.md` 位于仓库根目录
-- 不要把真实 `known-users.json`、运行时数据或私有渠道标识提交到仓库
+- 不要提交真实 `known-users.json`、运行时数据或私有渠道标识

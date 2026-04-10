@@ -3,12 +3,16 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  readPlans,
-  writePlans,
+  DEFAULT_TIMEZONE,
+  readCourses,
+  readEvents,
+  readRecurring,
   readMetadata,
   getArchiveDir,
-  getActiveDir
+  getActiveDir,
+  toLocal
 } = require('./file-ops.js');
+const { buildItemsForRange } = require('./rebuild-index.js');
 
 function groupBy(items, key) {
   return (items || []).reduce((accumulator, item) => {
@@ -22,15 +26,79 @@ function getWeekRange(weekNumber, metadata) {
   return metadata.weekMapping?.[`week${weekNumber}`] || null;
 }
 
-function getLifecycleStatus(item) {
-  return item.lifecycle?.status || item.status || 'active';
+function getEventLocalDate(event, timezone = DEFAULT_TIMEZONE) {
+  if (event.display?.date) {
+    return event.display.date;
+  }
+
+  const local = event.startAt ? toLocal(event.startAt, timezone) : null;
+  return local?.date || null;
 }
 
-function extractHighlights(events) {
-  return (events || [])
-    .filter((event) => getLifecycleStatus(event) === 'completed')
+function buildWeeklyStats(days) {
+  const items = days.flatMap((day) => day.events || []);
+  return {
+    totalItems: items.length,
+    totalDays: days.length,
+    byType: groupBy(items, 'type'),
+    bySource: groupBy(items, 'sourceType'),
+    byPriority: groupBy(items, 'priority'),
+    withReminders: items.filter((item) => item.reminders?.enabled).length,
+    completed: items.filter((item) => Boolean(item.completedAt)).length,
+    cancelled: items.filter((item) => Boolean(item.cancelledAt)).length
+  };
+}
+
+function extractHighlights(days) {
+  const items = days.flatMap((day) => day.events || []);
+  const completed = items
+    .filter((item) => Boolean(item.completedAt))
     .slice(0, 5)
-    .map((event) => `完成：${event.title}`);
+    .map((item) => `Completed: ${item.title}`);
+
+  const highPriority = items
+    .filter((item) => item.priority === 'high')
+    .slice(0, 5)
+    .map((item) => `High priority: ${item.title}`);
+
+  const withReminders = items
+    .filter((item) => item.reminders?.enabled)
+    .slice(0, 5)
+    .map((item) => `Reminder attached: ${item.title}`);
+
+  return [...completed, ...highPriority, ...withReminders].slice(0, 8);
+}
+
+function buildWeeklySourceSnapshot(weekRange, metadata) {
+  const timezone = metadata.displayTimezone || DEFAULT_TIMEZONE;
+  const courses = readCourses().courses || [];
+  const events = (readEvents().events || []).filter((event) => {
+    const date = getEventLocalDate(event, timezone);
+    return date && date >= weekRange.start && date <= weekRange.end;
+  });
+  const recurring = readRecurring().recurring || [];
+  const days = buildItemsForRange(weekRange.start, weekRange.end, {
+    timezone,
+    metadata
+  });
+
+  return {
+    weekRange,
+    sourceCounts: {
+      courses: courses.length,
+      events: events.length,
+      recurringRules: recurring.length
+    },
+    active: {
+      courses,
+      events,
+      recurring
+    },
+    expanded: {
+      days,
+      totalItems: days.flatMap((day) => day.events || []).length
+    }
+  };
 }
 
 function generateWeeklyReport(weekNumber) {
@@ -40,84 +108,60 @@ function generateWeeklyReport(weekNumber) {
     return null;
   }
 
-  const plans = readPlans().plans.filter((plan) => {
-    const date = plan.schedule?.displayDate || plan.schedule?.date;
-    return date >= weekRange.start && date <= weekRange.end;
+  const timezone = metadata.displayTimezone || DEFAULT_TIMEZONE;
+  const days = buildItemsForRange(weekRange.start, weekRange.end, {
+    timezone,
+    metadata
   });
-
-  const stats = {
-    totalEvents: plans.length,
-    totalPlans: plans.length,
-    byType: groupBy(plans, 'type'),
-    byStatus: plans.reduce((accumulator, plan) => {
-      const status = getLifecycleStatus(plan);
-      accumulator[status] = (accumulator[status] || 0) + 1;
-      return accumulator;
-    }, {}),
-    completed: plans.filter((plan) => getLifecycleStatus(plan) === 'completed').length,
-    cancelled: plans.filter((plan) => getLifecycleStatus(plan) === 'cancelled').length,
-    expired: plans.filter((plan) => getLifecycleStatus(plan) === 'expired').length,
-    active: plans.filter((plan) => getLifecycleStatus(plan) === 'active').length
-  };
-
-  stats.completionRate = stats.totalPlans > 0 ? stats.completed / stats.totalPlans : 0;
+  const stats = buildWeeklyStats(days);
 
   return {
     week: weekNumber,
     period: `${weekRange.start} ~ ${weekRange.end}`,
+    range: weekRange,
     semester: metadata.semester,
     stats,
-    events: plans,
-    highlights: extractHighlights(plans),
+    days,
+    highlights: extractHighlights(days),
     generatedAt: new Date().toISOString()
   };
 }
 
-function archiveLastWeekPlans() {
+function archiveWeekSnapshot(weekNumber) {
+  const metadata = readMetadata();
+  const weekRange = getWeekRange(weekNumber, metadata);
+  if (!weekRange) {
+    return { success: false, error: 'Week range not found.' };
+  }
+
+  const archiveDir = path.join(getArchiveDir(metadata.semester), 'raw');
+  fs.mkdirSync(archiveDir, { recursive: true });
+
+  const snapshot = {
+    week: weekNumber,
+    semester: metadata.semester,
+    archivedAt: new Date().toISOString(),
+    ...buildWeeklySourceSnapshot(weekRange, metadata)
+  };
+
+  const filePath = path.join(archiveDir, `week-${weekNumber}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf8');
+
+  return {
+    success: true,
+    filePath,
+    snapshot
+  };
+}
+
+function archiveLastWeekSnapshot() {
   const metadata = readMetadata();
   const lastWeek = (metadata.currentWeek || 1) - 1;
   if (lastWeek < 1) {
-    return true;
+    return { success: true, skipped: true, reason: 'no-previous-week' };
   }
 
-  const weekRange = getWeekRange(lastWeek, metadata);
-  if (!weekRange) {
-    return false;
-  }
-
-  const plansData = readPlans();
-  const archivedPlans = plansData.plans.filter((plan) => {
-    const date = plan.schedule?.displayDate || plan.schedule?.date;
-    return date >= weekRange.start && date <= weekRange.end;
-  });
-
-  if (archivedPlans.length === 0) {
-    return true;
-  }
-
-  const archiveDir = path.join(getArchiveDir(metadata.semester), 'plans');
-  fs.mkdirSync(archiveDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(archiveDir, `week-${lastWeek}.json`),
-    JSON.stringify(
-      {
-        week: lastWeek,
-        period: weekRange,
-        plans: archivedPlans,
-        archivedAt: new Date().toISOString()
-      },
-      null,
-      2
-    ),
-    'utf8'
-  );
-
-  plansData.plans = plansData.plans.filter((plan) => {
-    const date = plan.schedule?.displayDate || plan.schedule?.date;
-    return !(date >= weekRange.start && date <= weekRange.end);
-  });
-
-  return writePlans(plansData);
+  return archiveWeekSnapshot(lastWeek);
 }
 
 function archiveSemester(semesterName = null) {
@@ -126,7 +170,7 @@ function archiveSemester(semesterName = null) {
   const archiveDir = getArchiveDir(semester);
   fs.mkdirSync(archiveDir, { recursive: true });
 
-  for (const fileName of ['courses.json', 'recurring.json', 'plans.json']) {
+  for (const fileName of ['courses.json', 'events.json', 'recurring.json']) {
     const source = path.join(getActiveDir(), fileName);
     if (fs.existsSync(source)) {
       fs.copyFileSync(source, path.join(archiveDir, fileName));
@@ -138,15 +182,27 @@ function archiveSemester(semesterName = null) {
 
 function generateSemesterSummary(semester) {
   const archiveDir = getArchiveDir(semester);
-  const plansFile = path.join(archiveDir, 'plans.json');
-  const plans = fs.existsSync(plansFile) ? JSON.parse(fs.readFileSync(plansFile, 'utf8')).plans || [] : [];
+  const readArrayFromFile = (fileName, key) => {
+    const filePath = path.join(archiveDir, fileName);
+    if (!fs.existsSync(filePath)) {
+      return [];
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return Array.isArray(parsed[key]) ? parsed[key] : [];
+  };
+
+  const courses = readArrayFromFile('courses.json', 'courses');
+  const events = readArrayFromFile('events.json', 'events');
+  const recurring = readArrayFromFile('recurring.json', 'recurring');
 
   const summary = {
     semester,
-    totalPlans: plans.length,
-    completed: plans.filter((plan) => getLifecycleStatus(plan) === 'completed').length,
-    cancelled: plans.filter((plan) => getLifecycleStatus(plan) === 'cancelled').length,
-    expired: plans.filter((plan) => getLifecycleStatus(plan) === 'expired').length,
+    totalCourses: courses.length,
+    totalEvents: events.length,
+    totalRecurring: recurring.length,
+    completedEvents: events.filter((event) => Boolean(event.completedAt)).length,
+    cancelledEvents: events.filter((event) => Boolean(event.cancelledAt)).length,
     generatedAt: new Date().toISOString()
   };
 
@@ -156,7 +212,8 @@ function generateSemesterSummary(semester) {
 
 module.exports = {
   generateWeeklyReport,
-  archiveLastWeekPlans,
+  archiveWeekSnapshot,
+  archiveLastWeekSnapshot,
   archiveSemester,
   generateSemesterSummary
 };

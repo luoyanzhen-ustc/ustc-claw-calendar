@@ -1,5 +1,6 @@
 node_modules/
 .local-tools/
+docs/*.local.md
 data/
 *.log
 *.tmp.*
