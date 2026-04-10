@@ -404,22 +404,36 @@ function resolveReminderOccurrence({ sourceType, sourceId, sourceObject, options
 }
 
 function createReminderPrompt(occurrence, offset, offsetUnit, channel) {
-  const unitText = offsetUnit === 'days' ? 'days' : offsetUnit === 'hours' ? 'hours' : 'minutes';
+  const unitText = offsetUnit === 'days' ? '天' : offsetUnit === 'hours' ? '小时' : '分钟';
+  const channelText = channel === 'qq' ? 'QQ' : '微信';
+  const dateText = occurrence.display.date || '日期未知';
+  const timeText = occurrence.display.startTime || '时间未知';
+  const locationText = occurrence.location || null;
+  const summaryText = occurrence.summary || null;
 
   return [
-    'You are a calendar reminder assistant.',
-    'Reply with a short reminder message for the user.',
-    `Event title: ${occurrence.title}`,
-    `Event time: ${occurrence.display.date || 'date unavailable'} ${occurrence.display.startTime || 'time unavailable'} (Beijing time)`,
-    occurrence.summary ? `Event summary: ${occurrence.summary}` : null,
-    occurrence.location ? `Location: ${occurrence.location}` : null,
-    `Lead time: ${offset} ${unitText}`,
-    `Channel: ${channel === 'qq' ? 'QQ' : 'WeChat'}`,
-    'Requirements:',
-    '1. Use Beijing time wording, not UTC.',
-    '2. Do not call any tools.',
-    '3. Do not mention internal ids or system fields.',
-    '4. Keep it short and natural.'
+    '你是一个日程提醒助手。',
+    '你的任务是生成一条最终发给用户的中文提醒消息。',
+    '',
+    '已知信息：',
+    `- 标题：${occurrence.title}`,
+    `- 时间：${dateText} ${timeText}（北京时间）`,
+    summaryText ? `- 简述：${summaryText}` : null,
+    locationText ? `- 地点：${locationText}` : null,
+    `- 提前量：${offset} ${unitText}`,
+    `- 渠道：${channelText}`,
+    '',
+    '输出要求：',
+    '1. 必须只输出中文提醒文案本身，不要输出分析、解释、标题或额外前缀。',
+    '2. 必须使用北京时间表达，不要提 UTC。',
+    '3. 文案要简短、自然、明确，像正常提醒通知。',
+    '4. 不要编造未提供的信息。',
+    '5. 不要提及内部 id、系统字段、sourceType、cron 等技术信息。',
+    '6. 如果有地点或简述，可以自然带上；如果没有，就不要补充。',
+    '',
+    '推荐风格示例：',
+    '提醒你：2026-04-14 15:00 和老师讨论选题。',
+    '提醒你：2026-04-14 20:00 去健身，地点在西区体育馆。'
   ]
     .filter(Boolean)
     .join('\n');
