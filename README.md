@@ -1,6 +1,6 @@
 # USTC Claw Calendar Skill
 
-一个可直接放到 GitHub 的 OpenClaw 日历 skill 包。
+一个可直接放到 GitHub 的 OpenClaw 课表与日程 skill 包。
 
 ## 适用场景
 
@@ -95,7 +95,7 @@ ustc-claw-calendar/
 ├── README.md
 ├── config.json
 ├── package.json
-├── courses.jpg
+├── install.sh
 ├── scripts/
 │   ├── auto-init.js
 │   ├── install.js
@@ -103,9 +103,6 @@ ustc-claw-calendar/
 │   ├── setup-cron.js
 │   ├── daily-task.js
 │   └── weekly-task.js
-├── templates/
-│   ├── events.json
-│   └── settings.json
 └── tools/
     ├── archive-ops.js
     ├── cron-manager.js
@@ -114,7 +111,6 @@ ustc-claw-calendar/
     ├── ocr-wrapper.js
     ├── path-utils.js
     ├── plan-manager.js
-    ├── push-reminders.js
     └── rebuild-index.js
 ```
 
