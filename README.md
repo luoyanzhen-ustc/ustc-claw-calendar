@@ -30,6 +30,29 @@
 帮我安装这个 skill：https://github.com/luoyanzhen-ustc/ustc-claw-calendar，然后把学期开始日期设为 2026-03-01 并完成初始化
 ```
 
+## 手动一键安装
+
+如果你想手动安装，不通过对话安装，可直接运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/luoyanzhen-ustc/ustc-claw-calendar/main/install.sh | bash
+```
+
+如果你已经把仓库拉到本地，也可以直接：
+
+```bash
+bash install.sh
+```
+
+可选环境变量：
+
+```bash
+CLAW_CALENDAR_SEMESTER_START=2026-03-01
+CLAW_CALENDAR_SEMESTER_NAME=2026-spring
+USTC_CLAW_CALENDAR_SETUP_CRON=1
+OPENCLAW_WORKSPACE=/your/openclaw/workspace
+```
+
 如果你不指定日期，当前默认值是：
 
 ```text
