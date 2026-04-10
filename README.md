@@ -114,15 +114,3 @@ ustc-claw-calendar/
     └── rebuild-index.js
 ```
 
-## 当前约束
-
-- 不再依赖 `register-tools.js`
-- 不会把课表课程混写进 `plans.json`
-- `setup-cron.js` 只保留 daily / weekly 两类任务
-- 用户可见时间默认按北京时间表达
-
-## 发布前建议
-
-- 把仓库推到 GitHub 根目录
-- 确保 `SKILL.md` 位于仓库根目录
-- 不要把真实 `known-users.json`、运行时数据或私有渠道 ID 提交到仓库
