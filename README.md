@@ -84,6 +84,9 @@ node scripts/auto-init.js --semester-start 2026-03-01 --semester-name 2026-sprin
 node scripts/setup-cron.js
 node scripts/daily-task.js
 node scripts/weekly-task.js
+node scripts/review-course-import.js
+node scripts/confirm-course-import.js
+node scripts/discard-course-import.js
 ```
 
 如果环境支持 `npm`，也可以使用：
@@ -94,6 +97,34 @@ npm run check-channels
 npm run setup-cron
 npm run daily
 npm run weekly
+npm run review-course-import
+npm run confirm-course-import
+npm run discard-course-import
+```
+
+## 课表导入流程
+
+当前推荐的课表导入链路是：
+
+1. Agent 优先用自身读图能力解析课表图片
+2. 如果当前模型不适合直接读图，再回退到 OCR 模型解析
+3. 对初步结果应用 USTC 规则修正
+4. 先保存为待确认草稿，不直接写入 `courses.json`
+5. 向用户展示识别摘要并确认
+6. 用户确认后再导入正式课程存储
+
+可配合这些命令查看和确认：
+
+```bash
+node scripts/review-course-import.js
+node scripts/confirm-course-import.js
+node scripts/discard-course-import.js
+```
+
+如果草稿里还有待复核项目，但你已经和用户逐项确认无误，可使用：
+
+```bash
+node scripts/confirm-course-import.js --force
 ```
 
 ## 数据位置
@@ -125,10 +156,14 @@ ustc-claw-calendar/
 │   ├── init.js
 │   ├── setup-cron.js
 │   ├── daily-task.js
-│   └── weekly-task.js
+│   ├── weekly-task.js
+│   ├── review-course-import.js
+│   ├── confirm-course-import.js
+│   └── discard-course-import.js
 └── tools/
     ├── archive-ops.js
     ├── channel-sync.js
+    ├── course-import.js
     ├── cron-manager.js
     ├── date-math.js
     ├── file-ops.js

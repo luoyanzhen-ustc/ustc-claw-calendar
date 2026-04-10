@@ -32,6 +32,10 @@ function getIndexDir() {
   return path.join(getDataDir(), 'index');
 }
 
+function getImportDraftsDir() {
+  return path.join(getDataDir(), 'import-drafts');
+}
+
 function getSettingsFile() {
   return path.join(getDataDir(), 'settings.json');
 }
@@ -76,6 +80,14 @@ function getUpcomingIndexFile() {
   return path.join(getIndexDir(), 'upcoming.json');
 }
 
+function getLatestCourseImportDraftFile() {
+  return path.join(getImportDraftsDir(), 'latest-course-import.json');
+}
+
+function getCourseImportDraftFile(draftId) {
+  return path.join(getImportDraftsDir(), `${draftId}.json`);
+}
+
 module.exports = {
   getOpenClawHome,
   getWorkspace,
@@ -84,6 +96,7 @@ module.exports = {
   getActiveDir,
   getArchiveDir,
   getIndexDir,
+  getImportDraftsDir,
   getSettingsFile,
   getPlansFile,
   getCoursesFile,
@@ -94,5 +107,7 @@ module.exports = {
   getOpenClawWeixinAccountsDir,
   getMetadataFile,
   getTodayIndexFile,
-  getUpcomingIndexFile
+  getUpcomingIndexFile,
+  getLatestCourseImportDraftFile,
+  getCourseImportDraftFile
 };

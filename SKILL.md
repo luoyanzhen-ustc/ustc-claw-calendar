@@ -22,7 +22,7 @@ description: "OpenClaw 日历 skill。用于课表 OCR、课程写入 courses.js
 ### 2. 优先用脚本完成系统动作，用工具完成业务动作
 - 初始化、渠道同步、定时任务配置、索引重建、周报归档：优先运行脚本
 - 计划新增/修改/取消/完成：优先走计划层能力
-- 课表图片识别：优先走课表解析能力，再写入 `courses.json`
+- 课表图片识别：优先走课表解析能力，先生成待确认草稿，再在用户确认后写入 `courses.json`
 
 ### 3. 课程和计划必须分开
 - `courses.json` 只存课程表课程
@@ -50,6 +50,12 @@ description: "OpenClaw 日历 skill。用于课表 OCR、课程写入 courses.js
   `node scripts/daily-task.js`
 - 手动执行每周归档总结  
   `node scripts/weekly-task.js`
+- 查看最新课表导入草稿  
+  `node scripts/review-course-import.js`
+- 确认导入最新课表草稿  
+  `node scripts/confirm-course-import.js`
+- 丢弃最新课表草稿  
+  `node scripts/discard-course-import.js`
 
 如果用户环境支持 `npm`，也可用：
 - `npm run init`
@@ -57,6 +63,9 @@ description: "OpenClaw 日历 skill。用于课表 OCR、课程写入 courses.js
 - `npm run setup-cron`
 - `npm run daily`
 - `npm run weekly`
+- `npm run review-course-import`
+- `npm run confirm-course-import`
+- `npm run discard-course-import`
 
 ## 标准操作流程
 
@@ -123,14 +132,35 @@ description: "OpenClaw 日历 skill。用于课表 OCR、课程写入 courses.js
 ### D. 课表图片导入
 
 当用户上传课表图片时：
-1. 解析课表图片
-2. 把识别结果视为课程条目
-3. 将课程写入 `courses.json`
-4. 告诉用户导入了多少门课、哪些结果可能需要复核
+1. 先判断 Agent 当前是否能直接可靠读图
+   - 如果能，优先直接读图得到课程初稿
+   - 如果不能，再回退到模型 OCR
+2. 对课程初稿应用 USTC 规则修正
+   - 标准化星期、节次、周次
+   - 按节次补全 USTC 上课时间
+   - 标记需要复核的课程项
+3. 先生成课表导入草稿，不要立即写 `courses.json`
+4. 先向用户展示摘要并请求确认
+   - 识别出几门课
+   - 哪些课程需要复核
+   - 是否按当前草稿导入
+5. 只有用户确认后，才把草稿写入 `courses.json`
 
 课表导入后：
 - 不要自动把课程写入 `plans.json`
 - 不要把课程当成提醒计划
+
+课表导入脚本/工具用法：
+- 解析图片后应保存为待确认草稿
+- 如需查看草稿，运行 `node scripts/review-course-import.js`
+- 用户确认后，再运行 `node scripts/confirm-course-import.js`
+- 如果草稿里仍有 `needsReview` 项，但用户已经逐项确认无误，使用 `node scripts/confirm-course-import.js --force`
+- 如果用户否定当前识别结果，先更新草稿或重新识别；必要时运行 `node scripts/discard-course-import.js`
+
+确认规则：
+- 只要还有明显异常项，就不要默认直接导入
+- 如果用户已经逐项确认无误，再执行确认导入
+- 默认导入模式应是替换当前课表，而不是与旧课表混合
 
 ### E. 计划与提醒
 

@@ -14,7 +14,10 @@ const {
   getKnownUsersPath,
   getMetadataFile,
   getTodayIndexFile,
-  getUpcomingIndexFile
+  getUpcomingIndexFile,
+  getImportDraftsDir,
+  getLatestCourseImportDraftFile,
+  getCourseImportDraftFile
 } = require('./path-utils.js');
 
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
@@ -34,6 +37,7 @@ function ensureDataLayout() {
   ensureDirExists(getActiveDir());
   ensureDirExists(getArchiveDir());
   ensureDirExists(getIndexDir());
+  ensureDirExists(getImportDraftsDir());
 }
 
 function readJsonFile(filePath, defaultValue = null) {
@@ -478,6 +482,25 @@ function writeUpcomingIndex(data) {
   return writeJsonFile(getUpcomingIndexFile(), data);
 }
 
+function readCourseImportDraft(draftId = 'latest') {
+  ensureDataLayout();
+  const filePath = draftId === 'latest' ? getLatestCourseImportDraftFile() : getCourseImportDraftFile(draftId);
+  return readJsonFile(filePath, null);
+}
+
+function writeCourseImportDraft(draft, options = {}) {
+  ensureDataLayout();
+  if (!draft || !draft.id) {
+    return false;
+  }
+
+  const draftFile = getCourseImportDraftFile(draft.id);
+  const latestFile = getLatestCourseImportDraftFile();
+  const draftSaved = writeJsonFile(draftFile, draft, options);
+  const latestSaved = writeJsonFile(latestFile, draft, options);
+  return draftSaved && latestSaved;
+}
+
 function getTimezoneOffset(timezone = DEFAULT_TIMEZONE) {
   if (timezone === 'UTC') {
     return 'Z';
@@ -563,6 +586,8 @@ module.exports = {
   writeTodayIndex,
   readUpcomingIndex,
   writeUpcomingIndex,
+  readCourseImportDraft,
+  writeCourseImportDraft,
   toUTC,
   toLocal,
   generateEventId,
@@ -576,5 +601,8 @@ module.exports = {
   getCoursesFile,
   getRecurringFile,
   getKnownUsersPath,
-  getMetadataFile
+  getMetadataFile,
+  getImportDraftsDir,
+  getLatestCourseImportDraftFile,
+  getCourseImportDraftFile
 };
