@@ -20,7 +20,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-echo "📅 ${SKILL_NAME} 安装脚本"
+echo "📆 ${SKILL_NAME} 安装脚本"
 echo "========================================="
 echo "仓库: ${REPO_URL}"
 echo "工作区: ${WORKSPACE_DIR}"
@@ -57,7 +57,7 @@ if [ -z "${DEFAULT_SEMESTER_NAME}" ]; then
 fi
 
 echo ""
-echo "🧰 安装后的初始化参数:"
+echo "🧭 初始化参数"
 echo "  - 学期开始日期: ${DEFAULT_SEMESTER_START}"
 echo "  - 学期名称: ${DEFAULT_SEMESTER_NAME}"
 echo ""
@@ -82,7 +82,7 @@ if command -v node >/dev/null 2>&1; then
   fi
 else
   echo "⚠️  未找到 node，已完成文件安装，但未执行初始化"
-  echo "   之后可手动运行:"
+  echo "   之后可手动运行："
   echo "   cd \"${INSTALL_DIR}\" && OPENCLAW_WORKSPACE=\"${WORKSPACE_DIR}\" node scripts/install.js"
 fi
 
@@ -104,6 +104,7 @@ echo "数据目录:"
 echo "  ${WORKSPACE_DIR}/${SKILL_SLUG}/data"
 echo ""
 echo "后续建议:"
-echo "  1. 检查 known-users.json 是否已填写 QQ / 微信配置"
-echo "  2. 上传课表图片测试 courses.json 导入"
-echo "  3. 如需 daily / weekly cron，可设置环境变量 USTC_CLAW_CALENDAR_SETUP_CRON=1 后重装"
+echo "  1. 确认 OpenClaw 已与 QQ / 微信 bot 连通"
+echo "  2. 让用户至少通过目标渠道和机器人聊过一次"
+echo "  3. 然后执行一次初始化或渠道检查，skill 会自动同步渠道配置"
+echo "  4. 如需 daily / weekly cron，可设置环境变量 USTC_CLAW_CALENDAR_SETUP_CRON=1 后重装"

@@ -8,7 +8,7 @@
 - 管理临时计划、提醒、会议、待办，并写入 `plans.json`
 - 首次安装后自动初始化学期信息
 - 默认按北京时间和用户交流
-- 检查 QQ / 微信渠道配置
+- 自动同步 OpenClaw 已连通的 QQ / 微信 bot 渠道配置
 
 ## 一句话安装
 
@@ -68,10 +68,33 @@ OPENCLAW_WORKSPACE=/your/openclaw/workspace
 - 创建空的 `courses.json`
 - 创建空的 `recurring.json`
 - 创建空的 `plans.json`
-- 创建或检查 `known-users.json`
+- 自动同步并缓存渠道配置到 `known-users.json`
 - 自动按学期起始日期计算当前周
 
-如果 `known-users.json` 里还没有 QQ / 微信配置，skill 会提示你继续补配置。
+如果还没检测到已连通的 QQ / 微信 bot，skill 会提示你先完成 bot 连通；正常情况下不需要手动填写任何渠道 ID。
+
+## 常用脚本
+
+如果你或 Agent 需要显式执行脚本，优先使用这些命令：
+
+```bash
+node scripts/install.js
+node scripts/auto-init.js --check-channels
+node scripts/auto-init.js --semester-start 2026-03-01 --semester-name 2026-spring
+node scripts/setup-cron.js
+node scripts/daily-task.js
+node scripts/weekly-task.js
+```
+
+如果环境支持 `npm`，也可以使用：
+
+```bash
+npm run init
+npm run check-channels
+npm run setup-cron
+npm run daily
+npm run weekly
+```
 
 ## 数据位置
 
@@ -105,6 +128,7 @@ ustc-claw-calendar/
 │   └── weekly-task.js
 └── tools/
     ├── archive-ops.js
+    ├── channel-sync.js
     ├── cron-manager.js
     ├── date-math.js
     ├── file-ops.js
@@ -114,3 +138,15 @@ ustc-claw-calendar/
     └── rebuild-index.js
 ```
 
+## 当前约束
+
+- 不再依赖 `register-tools.js`
+- 不会把课表课程混写进 `plans.json`
+- `setup-cron.js` 只保留 daily / weekly 两类任务
+- 用户可见时间默认按北京时间表达
+
+## 发布前建议
+
+- 把仓库推到 GitHub 根目录
+- 确保 `SKILL.md` 位于仓库根目录
+- 不要把真实 `known-users.json`、运行时数据或私有渠道标识提交到仓库

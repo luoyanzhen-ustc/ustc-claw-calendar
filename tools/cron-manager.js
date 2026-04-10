@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 
 const { execSync } = require('child_process');
-const { readKnownUsers, normalizeKnownUsers } = require('./file-ops.js');
+const { syncChannels, getEffectiveUserChannelConfig, buildWeixinAccountName, buildQQTarget } = require('./channel-sync.js');
 
-function getUserChannelConfig() {
-  const users = normalizeKnownUsers(readKnownUsers());
-  return users[0] || {
+function getUserChannelConfig(options = {}) {
+  return getEffectiveUserChannelConfig(options) || {
     name: 'default',
     qq: { openid: null, enabled: false },
     weixin: { userId: null, accountId: null, enabled: false }
@@ -20,7 +19,7 @@ function getEnabledChannels(userConfig = getUserChannelConfig()) {
       type: 'qq',
       channel: 'qq',
       cliChannel: 'qqbot',
-      to: `qqbot:c2c:${userConfig.qq.openid}`,
+      to: buildQQTarget(userConfig.qq.openid),
       account: null
     });
   }
@@ -31,7 +30,7 @@ function getEnabledChannels(userConfig = getUserChannelConfig()) {
       channel: 'wechat',
       cliChannel: 'openclaw-weixin',
       to: userConfig.weixin.userId,
-      account: userConfig.weixin.accountId || null
+      account: buildWeixinAccountName(userConfig.weixin.accountId)
     });
   }
 
@@ -151,14 +150,14 @@ function createReminderPrompt(event, offset, offsetUnit, channel) {
 
   return [
     '你是日历提醒助手。',
-    `请直接生成一条提醒文案，输出给用户即可。`,
+    '请直接生成一条提醒文案，输出给用户即可。',
     `事件标题：${event.title}`,
     `事件时间：${displayDate} ${displayTime}（北京时间）`,
     event.location ? `事件地点：${event.location}` : null,
     `提醒提前量：${offset}${unitText}`,
     `渠道：${channel === 'qq' ? 'QQ' : '微信'}`,
     '要求：',
-    '1. 用北京时间表述，不要使用 UTC。',
+    '1. 用北京时间表达，不要使用 UTC。',
     '2. 不要调用任何工具。',
     '3. 不要输出内部字段、渠道 ID 或系统说明。',
     '4. 保持简短、自然、像真人提醒。'
@@ -166,9 +165,10 @@ function createReminderPrompt(event, offset, offsetUnit, channel) {
 }
 
 function createReminderCron({ eventId, stageId, event, eventTime, offset, offsetUnit }) {
+  syncChannels();
   const enabledChannels = getEnabledChannels();
   if (enabledChannels.length === 0) {
-    return { success: false, error: '没有可用的 QQ/微信 渠道配置' };
+    return { success: false, error: '未检测到可用的 QQ/微信 bot 渠道配置' };
   }
 
   const eventDate = new Date(eventTime);

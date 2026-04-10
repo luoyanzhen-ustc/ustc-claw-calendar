@@ -3,8 +3,12 @@
 const os = require('os');
 const path = require('path');
 
+function getOpenClawHome() {
+  return process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
+}
+
 function getWorkspace() {
-  return process.env.OPENCLAW_WORKSPACE || path.join(os.homedir(), '.openclaw', 'workspace');
+  return process.env.OPENCLAW_WORKSPACE || path.join(getOpenClawHome(), 'workspace');
 }
 
 function getCalendarDir() {
@@ -48,6 +52,18 @@ function getKnownUsersPath() {
   return path.join(getDataDir(), 'known-users.json');
 }
 
+function getOpenClawConfigFile() {
+  return path.join(getOpenClawHome(), 'openclaw.json');
+}
+
+function getOpenClawQQKnownUsersFile() {
+  return path.join(getOpenClawHome(), 'qqbot', 'data', 'known-users.json');
+}
+
+function getOpenClawWeixinAccountsDir() {
+  return path.join(getOpenClawHome(), 'openclaw-weixin', 'accounts');
+}
+
 function getMetadataFile() {
   return path.join(getDataDir(), 'metadata.json');
 }
@@ -61,6 +77,7 @@ function getUpcomingIndexFile() {
 }
 
 module.exports = {
+  getOpenClawHome,
   getWorkspace,
   getCalendarDir,
   getDataDir,
@@ -72,6 +89,9 @@ module.exports = {
   getCoursesFile,
   getRecurringFile,
   getKnownUsersPath,
+  getOpenClawConfigFile,
+  getOpenClawQQKnownUsersFile,
+  getOpenClawWeixinAccountsDir,
   getMetadataFile,
   getTodayIndexFile,
   getUpcomingIndexFile

@@ -13,12 +13,10 @@ const {
   writeRecurring,
   readPlans,
   writePlans,
-  readKnownUsers,
-  writeKnownUsers,
-  normalizeKnownUsers,
   getKnownUsersPath
 } = require('../tools/file-ops.js');
 const { getCurrentWeek } = require('../tools/date-math.js');
+const { syncChannels } = require('../tools/channel-sync.js');
 
 const DEFAULT_START_DATE = '2026-03-01';
 const DEFAULT_TOTAL_WEEKS = 20;
@@ -73,22 +71,14 @@ function calculateCurrentWeek(startDate) {
 function ensureKnownUsersFile() {
   const knownUsersPath = getKnownUsersPath();
   if (!fs.existsSync(knownUsersPath)) {
-    writeKnownUsers(readKnownUsers());
+    syncChannels();
   }
 
   return knownUsersPath;
 }
 
 function checkChannels() {
-  const normalizedUsers = normalizeKnownUsers(readKnownUsers());
-  const qqCount = normalizedUsers.filter((user) => user.qq.enabled && user.qq.openid).length;
-  const wechatCount = normalizedUsers.filter((user) => user.weixin.enabled && user.weixin.userId).length;
-
-  return {
-    qqCount,
-    wechatCount,
-    hasAnyChannel: qqCount > 0 || wechatCount > 0
-  };
+  return syncChannels();
 }
 
 function initializeFiles(semesterName) {
@@ -161,13 +151,27 @@ function printChannelStatus() {
   const knownUsersPath = ensureKnownUsersFile();
   const status = checkChannels();
 
-  console.log('渠道配置检查:');
-  console.log(`- known-users.json: ${knownUsersPath}`);
+  console.log('渠道配置同步结果');
+  console.log(`- 缓存文件: ${knownUsersPath}`);
+  console.log(`- OpenClaw 根目录: ${status.openClawHome}`);
+  console.log(`- 同步来源: ${status.source}`);
   console.log(`- QQ 用户数: ${status.qqCount}`);
   console.log(`- 微信用户数: ${status.wechatCount}`);
 
+  if (status.qqKnownUsersFile) {
+    console.log(`- QQ 来源文件: ${status.qqKnownUsersFile}`);
+  }
+
+  if (status.weixinAccountsDir) {
+    console.log(`- 微信来源目录: ${status.weixinAccountsDir}`);
+  }
+
   if (!status.hasAnyChannel) {
-    console.log('- 状态: 尚未配置 QQ/微信渠道，请编辑 known-users.json');
+    console.log('- 状态: 尚未检测到已连通的 QQ/微信 bot。请先让用户通过 QQ 或微信与 OpenClaw 机器人聊过天，无需手动提供 ID。');
+  } else if (status.synced) {
+    console.log('- 状态: 已从 OpenClaw 已连通的 bot 渠道自动同步配置。');
+  } else {
+    console.log('- 状态: 当前未读取到新的系统配置，已保留本地缓存。');
   }
 }
 
@@ -253,7 +257,7 @@ function runFromArgs(argv = process.argv.slice(2)) {
 
   const result = initializeSemester(options);
 
-  console.log('USTC Claw Calendar 初始化完成:');
+  console.log('USTC Claw Calendar 初始化完成');
   console.log(`- 学期: ${result.semesterName}`);
   console.log(`- 学期开始: ${result.startDate}`);
   console.log(`- 学期结束: ${result.endDate}`);

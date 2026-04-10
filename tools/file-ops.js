@@ -185,9 +185,18 @@ function buildKnownUsersDefaults() {
     ],
     metadata: {
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      source: 'default'
     }
   };
+}
+
+function normalizeWeixinAccountId(value) {
+  if (!value) {
+    return null;
+  }
+
+  return String(value).replace(/-im-bot(?:\.json)?$/, '');
 }
 
 function mergeSettings(rawSettings) {
@@ -223,6 +232,7 @@ function mergeSettings(rawSettings) {
 function normalizeSingleUser(rawUser = {}) {
   const qq = rawUser.qq || {};
   const weixin = rawUser.weixin || rawUser.wechat || {};
+  const accountId = normalizeWeixinAccountId(weixin.accountId || weixin.account || null);
 
   return {
     name: rawUser.name || 'default',
@@ -232,7 +242,7 @@ function normalizeSingleUser(rawUser = {}) {
     },
     weixin: {
       userId: weixin.userId || weixin.openid || null,
-      accountId: weixin.accountId || null,
+      accountId,
       enabled: Boolean(weixin.enabled && (weixin.userId || weixin.openid))
     }
   };
@@ -425,11 +435,16 @@ function readKnownUsers() {
 
 function writeKnownUsers(data) {
   const normalizedUsers = normalizeKnownUsers(data);
+  const inputMetadata = (data && data.metadata) || {};
+  const currentMetadata = (readKnownUsers().metadata || {});
   const payload = {
     version: 1,
     users: normalizedUsers.length > 0 ? normalizedUsers : buildKnownUsersDefaults().users,
     metadata: {
-      createdAt: (readKnownUsers().metadata || {}).createdAt || new Date().toISOString(),
+      ...buildKnownUsersDefaults().metadata,
+      ...currentMetadata,
+      ...inputMetadata,
+      createdAt: currentMetadata.createdAt || inputMetadata.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
   };
