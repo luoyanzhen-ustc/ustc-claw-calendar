@@ -135,7 +135,7 @@ function findExistingDir(paths) {
 function extractQqUsers(rawData) {
   const normalizedUsers = normalizeKnownUsers(rawData);
   if (normalizedUsers.length > 0) {
-    return normalizedUsers
+    const qqUsers = normalizedUsers
       .filter((user) => user.qq?.openid)
       .map((user) => ({
         name: user.name || 'default',
@@ -149,6 +149,10 @@ function extractQqUsers(rawData) {
           enabled: false
         }
       }));
+
+    if (qqUsers.length > 0) {
+      return qqUsers;
+    }
   }
 
   const values = collectStrings(rawData).filter((value) => /^[A-F0-9]{32}$/i.test(value));
